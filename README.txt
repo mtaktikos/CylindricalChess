@@ -1,0 +1,1 @@
+An attempt to realize some missing historical variants to Fairy Stockfish. i.e. Grant Acedrex, Courier Chess and Chu Shogi

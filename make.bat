@@ -68,7 +68,7 @@ goto done
 
 :avx2
 cd .\src
-make -j profile-build ARCH=x86-64-avx2 COMP=mingw
+make -j build ARCH=x86-64-avx2 COMP=mingw
 strip stockfish.exe
 cd ..
 move /-y ".\src\stockfish.exe" ".\Windows\SFFairy_x64_avx2.exe"
