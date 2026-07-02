@@ -199,8 +199,8 @@ void init(const Variant* v) {
       PieceType pt = pop_lsb(ps);
       if (is_custom(pt))
       {
-          PieceValue[MG][pt] = piece_value(MG, pt);
-          PieceValue[EG][pt] = piece_value(EG, pt);
+          PieceValue[MG][make_piece(WHITE, pt)] = PieceValue[MG][make_piece(BLACK, pt)] = piece_value(MG, pt);
+          PieceValue[EG][make_piece(WHITE, pt)] = PieceValue[EG][make_piece(BLACK, pt)] = piece_value(EG, pt);
       }
 
       if (PieceValue[MG][pt] > PieceValue[MG][strongestPiece])
@@ -218,7 +218,7 @@ void init(const Variant* v) {
       Score score = make_score(PieceValue[MG][pc], PieceValue[EG][pc]);
 
       // Consider promotion types in pawn score
-      if (pt == v->promotionPawnType[WHITE])
+      if (pt == v->mainPromotionPawnType[WHITE])
       {
           score -= make_score(0, (QueenValueEg - maxPromotion) / 100);
           if (v->blastOnCapture)
@@ -315,7 +315,7 @@ void init(const Variant* v) {
               pawnRank = rc;
       }
 
-      for (Square s = SQ_A1; s <= SQ_MAX; ++s)
+      for (Square s = SQ_MIN; s <= SQ_MAX; ++s)
       {
           File f = std::max(File(edge_distance(file_of(s), v->maxFile)), FILE_A);
           Rank r = rank_of(s);

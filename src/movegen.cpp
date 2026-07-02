@@ -17,6 +17,7 @@
 */
 
 #include <cassert>
+#include <cstdint>
 
 #include "movegen.h"
 #include "position.h"
@@ -25,12 +26,18 @@ namespace Stockfish {
 
 namespace {
 
+  inline int pop_lsb64(uint64_t& b) {
+    int idx = __builtin_ctzll(b);
+    b &= b - 1;
+    return idx;
+  }
+
   template<MoveType T>
   ExtMove* make_move_and_gating(const Position& pos, ExtMove* moveList, Color us, Square from, Square to, PieceType pt = NO_PIECE_TYPE) {
 
     // Wall placing moves
     //if it's "wall or move", and they chose non-null move, skip even generating wall move
-    if (pos.walling() && !(pos.variant()->wallOrMove && (from!=to)))
+    if (pos.walling() && !(pos.wall_or_move() && (from!=to)))
     {
         Bitboard b = pos.board_bb() & ~((pos.pieces() ^ from) | to);
         if (T == CASTLING)
@@ -47,7 +54,7 @@ namespace {
             b &= moves_bb(us, type_of(pos.piece_on(from)), to, pos.pieces() ^ from);
 
         //Any current or future wall variant must follow the walling region rule if set:
-        b &= pos.variant()->wallingRegion[us];
+        b &= pos.walling_region(us);
 
         if (pos.walling_rule() == PAST)
             b &= square_bb(from);
@@ -149,7 +156,7 @@ namespace {
 
     const Bitboard pawns      = pos.pieces(Us, PAWN);
     const Bitboard movable    = pos.board_bb(Us, PAWN) & ~pos.pieces();
-    const Bitboard capturable = pos.board_bb(Us, PAWN) &  pos.pieces(Them);
+    const Bitboard capturable = pos.board_bb(Us, PAWN) &  pos.pieces(Them) & ~pos.prohibited_capture_targets(Us, PAWN);
 
     target = Type == EVASIONS ? target : AllSquares;
 
@@ -159,30 +166,6 @@ namespace {
     Bitboard b3 = shift<Up>(shift<Up>(shift<Up>(pawns & tripleStepRegion) & movable) & movable) & movable & target;
     Bitboard brc = shift<UpRight>(pawns) & capturable & target;
     Bitboard blc = shift<UpLeft >(pawns) & capturable & target;
-
-    // Cylindrical board: compute pawn captures that wrap around the file edges separately,
-    // because the standard 'from = to - direction' formula does not work across file boundaries.
-    // These are stored separately and generated after the main capture loops.
-    Bitboard wrapBrc = 0, wrapBlc = 0;
-    if (pos.variant()->cylindrical)
-    {
-        File maxFile = pos.max_file();
-        int mf = int(maxFile);
-        if (Us == WHITE)
-        {
-            // Right-wrap: pawns on FILE_maxFile capture going east, wrapping to FILE_A
-            wrapBrc = ((pawns & file_bb(maxFile)) << (FILE_NB - mf)) & capturable & target;
-            // Left-wrap:  pawns on FILE_A capture going west, wrapping to FILE_maxFile
-            wrapBlc = ((pawns & FileABB)          << (FILE_NB + mf)) & capturable & target;
-        }
-        else
-        {
-            // Right-wrap (SOUTH_WEST for Black): pawns on FILE_A wrap to FILE_maxFile
-            wrapBrc = ((pawns & FileABB)          >> (FILE_NB - mf)) & capturable & target;
-            // Left-wrap (SOUTH_EAST for Black): pawns on FILE_maxFile wrap to FILE_A
-            wrapBlc = ((pawns & file_bb(maxFile)) >> (FILE_NB + mf)) & capturable & target;
-        }
-    }
 
     Bitboard b1p = b1 & standardPromotionZone;
     Bitboard b2p = b2 & standardPromotionZone;
@@ -296,62 +279,20 @@ namespace {
             if (Type == EVASIONS && (target & (epSquare + Up)) && !pos.non_sliding_riders())
                 return moveList;
 
-            Bitboard b = pawns & pawn_attacks_bb(Them, epSquare);
+            Bitboard b = (pos.prohibited_capture_types(Us, PAWN) & type_of(pos.piece_on(pos.capture_square(epSquare))))
+                       ? Bitboard(0) : pawns & pawn_attacks_bb(Them, epSquare);
 
             // En passant square is already disabled for non-fairy variants if there is no attacker
-            assert(b || !pos.variant()->fastAttacks);
+            assert(b || !pos.fast_attacks());
 
             while (b)
                 moveList = make_move_and_gating<EN_PASSANT>(pos, moveList, Us, pop_lsb(b), epSquare);
-        }
-
-        // Cylindrical board: generate pawn captures that wrap around the file edges.
-        // The from square is computed explicitly since 'to - direction' doesn't work across file boundaries.
-        if (wrapBrc | wrapBlc)
-        {
-            File maxFile = pos.max_file();
-            // For White: brc-wrap source is on maxFile, blc-wrap source is on FILE_A
-            // For Black: brc-wrap source is on FILE_A,  blc-wrap source is on maxFile
-            File brcFromFile = (Us == WHITE) ? maxFile : FILE_A;
-            File blcFromFile = (Us == WHITE) ? FILE_A  : maxFile;
-            int rankDir = (Us == WHITE) ? -1 : 1;  // from rank relative to to rank
-
-            Bitboard wbrc = wrapBrc & standardPromotionZone;
-            while (wbrc)
-            {
-                Square to = pop_lsb(wbrc);
-                Square from = make_square(brcFromFile, Rank(int(rank_of(to)) + rankDir));
-                for (PieceSet ps = pos.promotion_piece_types(Us); ps;)
-                    moveList = make_move_and_gating<PROMOTION>(pos, moveList, Us, from, to, pop_msb(ps));
-            }
-            Bitboard wblc = wrapBlc & standardPromotionZone;
-            while (wblc)
-            {
-                Square to = pop_lsb(wblc);
-                Square from = make_square(blcFromFile, Rank(int(rank_of(to)) + rankDir));
-                for (PieceSet ps = pos.promotion_piece_types(Us); ps;)
-                    moveList = make_move_and_gating<PROMOTION>(pos, moveList, Us, from, to, pop_msb(ps));
-            }
-
-            Bitboard wbrc_np = wrapBrc & ~standardPromotionZone;
-            while (wbrc_np)
-            {
-                Square to = pop_lsb(wbrc_np);
-                Square from = make_square(brcFromFile, Rank(int(rank_of(to)) + rankDir));
-                moveList = make_move_and_gating<NORMAL>(pos, moveList, Us, from, to);
-            }
-            Bitboard wblc_np = wrapBlc & ~standardPromotionZone;
-            while (wblc_np)
-            {
-                Square to = pop_lsb(wblc_np);
-                Square from = make_square(blcFromFile, Rank(int(rank_of(to)) + rankDir));
-                moveList = make_move_and_gating<NORMAL>(pos, moveList, Us, from, to);
-            }
         }
     }
 
     return moveList;
   }
+
 
   template<Color Us, GenType Type>
   ExtMove* generate_moves(const Position& pos, ExtMove* moveList, PieceType Pt, Bitboard target) {
@@ -364,18 +305,17 @@ namespace {
     {
         Square from = pop_lsb(bb);
 
-        Bitboard attacks = pos.attacks_from(Us, Pt, from);
+        Bitboard attacks = pos.attacks_from(Us, Pt, from) & ~pos.prohibited_capture_targets(Us, Pt);
         Bitboard quiets = pos.moves_from(Us, Pt, from);
-        Bitboard b = ((attacks & pos.pieces()) | (quiets & ~pos.pieces()));
-
-        Bitboard epSquares = pos.variant()->enPassantTypes[Us] & Pt ? attacks & pos.ep_squares() & ~pos.pieces() : Bitboard(0);
-        Bitboard b1 = b & target & ~epSquares;
-
+        Bitboard b = (  (attacks & pos.pieces())
+                       | (quiets & ~pos.pieces()));
+        Bitboard b1 = b & target;
         Bitboard promotion_zone = pos.promotion_zone(Us);
-        PieceType promPt = pos.promoted_piece_type(Pt);
+        PieceType promPt = pos.is_promoted(from) ? NO_PIECE_TYPE : pos.promoted_piece_type(Pt);
         Bitboard b2 = promPt && (!pos.promotion_limit(promPt) || pos.promotion_limit(promPt) > pos.count(Us, promPt)) ? b1 : Bitboard(0);
         Bitboard b3 = pos.piece_demotion() && pos.is_promoted(from) ? b1 : Bitboard(0);
-        Bitboard pawnPromotions = pos.variant()->promotionPawnTypes[Us] & Pt ? b & (Type == EVASIONS ? target : ~pos.pieces(Us)) & promotion_zone : Bitboard(0);
+        Bitboard pawnPromotions = (pos.promotion_pawn_types(Us) & Pt) ? (b & (Type == EVASIONS ? target : ~pos.pieces(Us)) & promotion_zone) : Bitboard(0);
+        Bitboard epSquares = (pos.en_passant_types(Us) & Pt) ? (attacks & ~quiets & pos.ep_squares() & ~pos.pieces()) : Bitboard(0);
 
         // target squares considering pawn promotions
         if (pawnPromotions && pos.mandatory_pawn_promotion())
@@ -404,7 +344,7 @@ namespace {
         {
             b1 &= pos.check_squares(Pt);
             if (b2)
-                b2 &= pos.check_squares(pos.promoted_piece_type(Pt));
+                b2 &= pos.check_squares(promPt);
             if (b3)
                 b3 &= pos.check_squares(type_of(pos.unpromoted_piece_on(from)));
         }
@@ -434,6 +374,36 @@ namespace {
         if (Type == CAPTURES || Type == EVASIONS || Type == NON_EVASIONS)
             while (epSquares)
                 moveList = make_move_and_gating<EN_PASSANT>(pos, moveList, Us, from, pop_lsb(epSquares));
+
+        uint64_t lionMask = pos.lion_move_mask(Us, Pt, from);
+        if (lionMask && Type != QUIET_CHECKS)
+        {
+            uint32_t localFriendly = uint32_t(pext(pos.pieces(Us) - from, LionLocalMask[from]));
+            while (lionMask)
+            {
+                int path = pop_lsb64(lionMask);
+                if (localFriendly & LionPathLocalMask[from][path])
+                    continue;
+
+                Square via = LionVia[from][path];
+                Square to = LionTo[from][path];
+
+                Bitboard pathSquares = square_bb(via) | to;
+                PieceSet prohibited = pos.prohibited_capture_types(Us, Pt);
+                if (   prohibited
+                    && (  (!pos.empty(via) && color_of(pos.piece_on(via)) == ~Us && (prohibited & type_of(pos.piece_on(via))))
+                       || (to != from && !pos.empty(to) && color_of(pos.piece_on(to)) == ~Us && (prohibited & type_of(pos.piece_on(to))))))
+                    continue;
+
+                bool isCapture = bool(pathSquares & pos.pieces(~Us));
+                bool include = Type == NON_EVASIONS
+                            || (Type == CAPTURES && isCapture)
+                            || (Type == QUIETS && !isCapture)
+                            || (Type == EVASIONS && ((target & to) || (pathSquares & pos.checkers())));
+                if (include)
+                    *moveList++ = make_lion(from, path, to);
+            }
+        }
     }
 
     return moveList;
@@ -514,7 +484,7 @@ namespace {
             *moveList++ = make<SPECIAL>(lsb(pos.pieces(Us)), lsb(pos.pieces(Us)));
 
         //if "wall or move", generate walling action with null move
-        if (pos.variant()->wallOrMove)
+        if (pos.wall_or_move())
         {
             moveList = make_move_and_gating<SPECIAL>(pos, moveList, Us, lsb(pos.pieces(Us)), lsb(pos.pieces(Us)));
         }
@@ -523,7 +493,7 @@ namespace {
     // King moves
     if (pos.count<KING>(Us) && (!Checks || pos.blockers_for_king(~Us) & ksq))
     {
-        Bitboard b = (  (pos.attacks_from(Us, KING, ksq) & pos.pieces())
+        Bitboard b = (  ((pos.attacks_from(Us, KING, ksq) & ~pos.prohibited_capture_targets(Us, KING)) & pos.pieces())
                       | (pos.moves_from(Us, KING, ksq) & ~pos.pieces())) & (Type == EVASIONS ? ~pos.pieces(Us) : target);
         while (b)
             moveList = make_move_and_gating<NORMAL>(pos, moveList, Us, ksq, pop_lsb(b));
@@ -582,11 +552,8 @@ ExtMove* generate<LEGAL>(const Position& pos, ExtMove* moveList) {
 
   ExtMove* cur = moveList;
 
-  // For cylindrical variants when in check, use NON_EVASIONS to ensure all blocking
-  // moves via the cylindrical path are considered (between_bb is not cylindrical-aware).
-  bool useNonEvasions = pos.variant()->cylindrical && pos.checkers();
-  moveList = (pos.checkers() && !useNonEvasions) ? generate<EVASIONS    >(pos, moveList)
-                                                 : generate<NON_EVASIONS>(pos, moveList);
+  moveList = pos.checkers() ? generate<EVASIONS    >(pos, moveList)
+                            : generate<NON_EVASIONS>(pos, moveList);
   while (cur != moveList)
       if (!pos.legal(*cur) || pos.virtual_drop(*cur))
           *cur = (--moveList)->move;
