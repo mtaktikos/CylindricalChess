@@ -12,7 +12,7 @@ if platform.python_compiler().startswith("MSC"):
 else:
     args = ["-std=c++17", "-flto", "-Wno-date-time"]
 
-args.extend(["-DLARGEBOARDS", "-DALLVARS", "-DPRECOMPUTED_MAGICS", "-DNNUE_EMBEDDING_OFF"])
+args.extend(["-DBOARD_FILES=12", "-DBOARD_RANKS=10", "-DALLVARS", "-DPRECOMPUTED_MAGICS", "-DNNUE_EMBEDDING_OFF"])
 
 if "64bit" in platform.architecture():
     args.append("-DIS_64BIT")
@@ -28,6 +28,7 @@ with io.open("README.md", "r", encoding="utf8") as fh:
     long_description = fh.read().strip()
 
 sources = glob("src/*.cpp") + glob("src/syzygy/*.cpp") + glob("src/nnue/*.cpp") + glob("src/nnue/features/*.cpp")
+headers = glob("src/*.h") + glob("src/syzygy/*.h") + glob("src/nnue/*.h") + glob("src/nnue/features/*.h")
 ffish_source_file = os.path.normcase("src/ffishjs.cpp")
 try:
     sources.remove(ffish_source_file)
@@ -37,9 +38,10 @@ except ValueError:
 pyffish_module = Extension(
     "pyffish",
     sources=sources,
+    depends=headers,
     extra_compile_args=args)
 
-setup(name="pyffish", version="0.0.88",
+setup(name="pyffish", version="0.0.89",
       description="Fairy-Stockfish Python wrapper",
       long_description=long_description,
       long_description_content_type="text/markdown",
