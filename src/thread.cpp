@@ -115,11 +115,8 @@ void Thread::idle_loop() {
       searching = false;
       cv.notify_one(); // Wake up anyone waiting for search finished
       // Start ponder search from separate thread to prevent deadlock
-      if (Threads.size() && this == Threads.main() && XBoard::stateMachine && XBoard::stateMachine->ponderMove)
-      {
-          NativeThread t(&XBoard::StateMachine::ponder, XBoard::stateMachine);
-          t.detach();
-      }
+      if (!Threads.stop && Threads.size() && this == Threads.main() && XBoard::stateMachine && XBoard::stateMachine->ponderMove)
+          XBoard::stateMachine->launch_ponder_worker();
       cv.wait(lk, [&]{ return searching; });
 
       if (exit)
@@ -195,7 +192,7 @@ void ThreadPool::start_thinking(Position& pos, StateListPtr& states,
           rootMoves.emplace_back(m);
 
   // Add virtual drops
-  if (pos.two_boards() && Partner.opptime && limits.time[pos.side_to_move()] > Partner.opptime + 1000)
+  if (pos.two_boards() && pos.virtual_drops() && Partner.opptime && limits.time[pos.side_to_move()] > Partner.opptime + 1000)
   {
       if (pos.checkers())
       {

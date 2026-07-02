@@ -154,10 +154,13 @@ constexpr Score PBonus[RANK_NB][FILE_NB] =
 
 
 // Scale down slider value based on distance
-int slider_fraction(std::map<Direction, int> slider) {
+int slider_fraction(const std::map<Direction, int>& slider) {
     int s = 0;
     for (auto const& [_, limit] : slider) {
-        s += limit == 0 ? 100 : 200 * std::min(limit + 1, 8) / 16;
+        if (limit == 0 || limit == DYNAMIC_SLIDER_LIMIT || limit == SKI_SLIDER_LIMIT || limit == MAX_SLIDER_LIMIT)
+            s += 100;
+        else
+            s += 200 * std::min(limit + 1, 8) / 16;
     }
     return s;
 }
@@ -236,7 +239,7 @@ void init(const Variant* v) {
           constexpr int lc = 5;
           constexpr int rm = 5;
           constexpr int r0 = rm + RANK_8;
-          int r1 = rm + (v->maxRank + v->maxFile - 2 * v->capturesToHand) / 2;
+          int r1 = rm + (v->maxRank + v->maxFile - 2 * (v->captureType != MOVE_OUT)) / 2;
           int leaper = pi->steps[0][MODALITY_QUIET].size() + pi->steps[0][MODALITY_CAPTURE].size();
           int slider = pi->slider[0][MODALITY_QUIET].size() + pi->slider[0][MODALITY_CAPTURE].size() + pi->hopper[0][MODALITY_QUIET].size() + pi->hopper[0][MODALITY_CAPTURE].size();
           score = make_score(mg_value(score) * (lc * leaper + r1 * slider) / (lc * leaper + r0 * slider),
@@ -244,7 +247,7 @@ void init(const Variant* v) {
       }
 
       // Piece values saturate earlier in drop variants
-      if (v->capturesToHand || v->twoBoards)
+      if (v->captureType != MOVE_OUT || v->twoBoards)
           score = make_score(mg_value(score) * 7000 / (7000 + mg_value(score)),
                              eg_value(score) * 7000 / (7000 + eg_value(score)));
 
@@ -278,7 +281,7 @@ void init(const Variant* v) {
 
       // The strongest piece of a variant usually has some dominance, such as rooks in Makruk and Xiangqi.
       // This does not apply to drop variants.
-      if (pt == strongestPiece && !v->capturesToHand)
+      if (pt == strongestPiece && v->captureType == MOVE_OUT)
               score += make_score(std::max(QueenValueMg - PieceValue[MG][pt], VALUE_ZERO) / 20,
                                   std::max(QueenValueEg - PieceValue[EG][pt], VALUE_ZERO) / 20);
 
@@ -296,7 +299,7 @@ void init(const Variant* v) {
       CapturePieceValue[EG][pc] = CapturePieceValue[EG][~pc] = eg_value(score);
 
       // For drop variants, halve the piece values to compensate for double changes by captures
-      if (v->capturesToHand)
+      if (v->captureType != MOVE_OUT)
           score = score / 2;
 
       EvalPieceValue[MG][pc] = EvalPieceValue[MG][~pc] = mg_value(score);
@@ -315,12 +318,12 @@ void init(const Variant* v) {
               pawnRank = rc;
       }
 
-      for (Square s = SQ_MIN; s <= SQ_MAX; ++s)
+      for (Square s = SQ_A1; s <= SQ_MAX; ++s)
       {
           File f = std::max(File(edge_distance(file_of(s), v->maxFile)), FILE_A);
           Rank r = rank_of(s);
           psq[ pc][s] = score + (  pt == PAWN  ? PBonus[std::min(r, RANK_8)][std::min(file_of(s), FILE_H)]
-                                 : pt == KING  ? KingBonus[std::clamp(Rank(r - pawnRank + 1), RANK_1, RANK_8)][std::min(f, FILE_D)] * (1 + v->capturesToHand)
+                                 : pt == KING  ? KingBonus[std::clamp(Rank(r - pawnRank + 1), RANK_1, RANK_8)][std::min(f, FILE_D)] * (1 + (v->captureType != MOVE_OUT))
                                  : pt <= QUEEN ? Bonus[pc][std::min(r, RANK_8)][std::min(f, FILE_D)] * (1 + v->blastOnCapture)
                                  : pt == HORSE ? Bonus[KNIGHT][std::min(r, RANK_8)][std::min(f, FILE_D)]
                                  : pt == COMMONER && v->extinctionValue == -VALUE_MATE && (v->extinctionPieceTypes & COMMONER) ? KingBonus[std::clamp(Rank(r - pawnRank + 1), RANK_1, RANK_8)][std::min(f, FILE_D)]

@@ -52,7 +52,8 @@ namespace {
 
 #ifndef NDEBUG
   bool verify_material(const Position& pos, Color c, Value npm, int pawnsCnt) {
-    return pos.non_pawn_material(c) == npm && pos.count<PAWN>(c) == pawnsCnt;
+    return   pos.non_pawn_material(c) == npm
+          && pos.count<PAWN>(c) == pawnsCnt;
   }
 #endif
 
@@ -207,8 +208,9 @@ Value Endgame<KPK>::operator()(const Position& pos) const {
 
   Color us = strongSide == pos.side_to_move() ? WHITE : BLACK;
 
-  // Non-standard promotion, evaluation unclear
-  if (   pos.promotion_zone(us) != rank_bb(relative_rank(us, RANK_8, pos.max_rank()))
+  // KPK is registered only for literal PAWN material signatures.
+  // For non-standard promotion rules, skip bitbase probing and use fallback eval.
+  if (   pos.promotion_zone(us, PAWN) != rank_bb(relative_rank(us, RANK_8, pos.max_rank()))
       || RANK_MAX != RANK_8
       || !(pos.promotion_piece_types(us) & QUEEN))
   {
@@ -577,8 +579,9 @@ Value Endgame<KRKS>::operator()(const Position& pos) const {
 template<>
 ScaleFactor Endgame<KBPsK>::operator()(const Position& pos) const {
 
-  assert(pos.non_pawn_material(strongSide) == BishopValueMg);
-  assert(pos.count<PAWN>(strongSide) >= 1);
+  if (pos.non_pawn_material(strongSide) != BishopValueMg
+      || pos.count<PAWN>(strongSide) < 1)
+      return SCALE_FACTOR_NONE;
 
   // No assertions about the material of weakSide, because we want draws to
   // be detected even when the weaker side has some pawns.
@@ -998,7 +1001,8 @@ ScaleFactor Endgame<KPKP>::operator()(const Position& pos) const {
 
   // Probe the KPK bitbase with the weakest side's pawn removed. If it's a draw,
   // it's probably at least a draw even with the pawn.
-  if (   pos.promotion_zone(us) != rank_bb(relative_rank(us, RANK_8, pos.max_rank()))
+  // KPKP is registered only for literal PAWN material signatures.
+  if (   pos.promotion_zone(us, PAWN) != rank_bb(relative_rank(us, RANK_8, pos.max_rank()))
       || RANK_MAX != RANK_8
       || !(pos.promotion_piece_types(us) & QUEEN))
       return SCALE_FACTOR_NONE;
@@ -1146,7 +1150,7 @@ Value Endgame<KQK, EG_EVAL_ATOMIC>::operator()(const Position& pos) const {
 
   int dist = distance(winnerKSq, loserKSq);
   // Draw in case of adjacent kings
-  if (dist ==  1)
+  if (dist == 1)
       return VALUE_DRAW;
   // If the weaker side is to move and there is a way to connect kings, it is a draw
   if (   pos.side_to_move() == weakSide

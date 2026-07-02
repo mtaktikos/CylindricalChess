@@ -21,7 +21,8 @@
 #include <vector>
 #include <string>
 #include <sstream>
-#include<iostream>
+#include <iostream>
+#include <atomic>
 
 #include "misc.h"
 #include "types.h"
@@ -41,6 +42,10 @@
 using namespace emscripten;
 
 using namespace Stockfish;
+
+namespace {
+std::atomic<bool> logReadGamePgnMoves{false};
+}
 
 void initialize_stockfish() {
   pieceMap.init();
@@ -62,7 +67,10 @@ inline void save_pop_back(std::string& s) {
 const Variant* get_variant(const std::string& uciVariant) {
   if (uciVariant.size() == 0 || uciVariant == "Standard" || uciVariant == "standard")
     return variants.find("chess")->second;
-  return variants.find(uciVariant)->second;
+  auto it = variants.find(uciVariant);
+  if (it != variants.end())
+    return it->second;
+  return variants.find("chess")->second;
 }
 
 template <bool isUCI>
@@ -84,6 +92,7 @@ private:
   Position pos;
   Thread* thread;
   std::vector<Move> moveStack;
+  std::vector<std::string> moveStackUCI;
   bool is960;
 
 public:
@@ -134,6 +143,7 @@ public:
     if (is_move_none<true>(move, uciMove, pos))
       return false;
     do_move(move);
+    moveStackUCI.emplace_back(uciMove);
     return true;
   }
 
@@ -153,14 +163,21 @@ public:
     }
     if (is_move_none<false>(foundMove, sanMove, pos))
       return false;
+    std::string uciMove = UCI::move(this->pos, foundMove);
     do_move(foundMove);
+    moveStackUCI.emplace_back(uciMove);
     return true;
   }
 
-  void pop() {
+  bool pop() {
+    if (moveStack.empty() || states->size() <= 1)
+      return false;
+
     pos.undo_move(this->moveStack.back());
     moveStack.pop_back();
+    moveStackUCI.pop_back();
     states->pop_back();
+    return true;
   }
 
   void reset() {
@@ -186,6 +203,7 @@ public:
   void set_fen(std::string fen) {
     resetStates();
     moveStack.clear();
+    moveStackUCI.clear();
     pos.set(v, fen, is960, &states->back(), thread);
   }
 
@@ -211,16 +229,27 @@ public:
 
   std::string variation_san(std::string uciMoves, Notation notation, bool moveNumbers) {
     std::stringstream ss(uciMoves);
-    StateListPtr tempStates;
     std::vector<Move> moves;
     std::string variationSan = "";
     std::string uciMove;
     bool first = true;
+    std::size_t pushedStates = 0;
+
+    auto rollback = [&]() {
+      for (auto rIt = std::rbegin(moves); rIt != std::rend(moves); ++rIt)
+        pos.undo_move(*rIt);
+      for (std::size_t i = 0; i < pushedStates; ++i)
+        states->pop_back();
+      pushedStates = 0;
+    };
 
     while (std::getline(ss, uciMove, ' ')) {
       const Move move = UCI::to_move(this->pos, uciMove);
       if (is_move_none<true>(move, uciMove, pos))
+      {
+        rollback();
         return "";
+      }
       moves.emplace_back(UCI::to_move(this->pos, uciMove));
       if (first) {
         first = false;
@@ -244,12 +273,11 @@ public:
       }
       states->emplace_back();
       pos.do_move(moves.back(), states->back());
+      ++pushedStates;
     }
 
     // recover initial state
-    for(auto rIt = std::rbegin(moves); rIt != std::rend(moves); ++rIt) {
-      pos.undo_move(*rIt);
-    }
+    rollback();
 
     return variationSan;
   }
@@ -349,8 +377,8 @@ public:
 
   std::string move_stack() const {
     std::string moves;
-    for(auto it = std::begin(moveStack); it != std::end(moveStack); ++it) {
-      moves += UCI::move(pos, *it);
+    for(auto it = std::begin(moveStackUCI); it != std::end(moveStackUCI); ++it) {
+      moves += *it;
       moves += DELIM;
     }
     save_pop_back(moves);
@@ -486,7 +514,7 @@ namespace ffish {
 
   bool captures_to_hand(std::string uciVariant) {
     const Variant* v = get_variant(uciVariant);
-    return v->capturesToHand;
+    return v->captureType != MOVE_OUT;
   }
 
   std::string starting_fen(std::string uciVariant) {
@@ -663,7 +691,8 @@ Game read_game_pgn(std::string pgn) {
           size_t annotationChar2 = sanMove.find('!');
           if (annotationChar1 != std::string::npos || annotationChar2 != std::string::npos)
             sanMove = sanMove.substr(0, std::min(annotationChar1, annotationChar2));
-          std::cout << sanMove << " ";
+          if (logReadGamePgnMoves.load())
+            std::cerr << sanMove << " ";
           game.board->push_san(sanMove);
         }
         curIdx = sanMoveEnd+1;
@@ -754,6 +783,9 @@ EMSCRIPTEN_BINDINGS(ffish_js) {
   function("setOption", &ffish::set_option<std::string>);
   function("setOptionInt", &ffish::set_option<int>);
   function("setOptionBool", &ffish::set_option<bool>);
+  function("setReadGamePGNLoggingEnabled", optional_override([](bool enabled) {
+    logReadGamePgnMoves.store(enabled);
+  }));
   function("readGamePGN", &read_game_pgn);
   function("variants", &ffish::available_variants);
   function("loadVariantConfig", &ffish::load_variant_config);

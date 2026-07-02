@@ -20,11 +20,9 @@
 #define VARIANT_H_INCLUDED
 
 #include <bitset>
-#include <cctype>
 #include <set>
 #include <map>
 #include <vector>
-#include <algorithm>
 #include <string>
 #include <functional>
 #include <sstream>
@@ -36,6 +34,8 @@
 namespace Stockfish {
 
 /// Variant struct stores information needed to determine the rules of a variant.
+
+constexpr int START_MULTIMOVES = 16;
 
 struct Variant {
   std::string variantTemplate = "fairy";
@@ -51,33 +51,55 @@ struct Variant {
   std::string pieceToChar =  " PNBRQ" + std::string(KING - QUEEN - 1, ' ') + "K" + std::string(PIECE_TYPE_NB - KING - 1, ' ')
                            + " pnbrq" + std::string(KING - QUEEN - 1, ' ') + "k" + std::string(PIECE_TYPE_NB - KING - 1, ' ');
   std::string pieceToCharSynonyms = std::string(PIECE_NB, ' ');
-  std::vector<std::string> pieceToSymbol;
-  std::vector<std::string> pieceToSymbolSynonyms;
   std::string startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
   Bitboard mobilityRegion[COLOR_NB][PIECE_TYPE_NB] = {};
   Bitboard promotionRegion[COLOR_NB] = {Rank8BB, Rank1BB};
+  bool pieceSpecificPromotionRegion = false;
+  PieceTypeBitboardGroup whitePiecePromotionRegion;
+  PieceTypeBitboardGroup blackPiecePromotionRegion;
   PieceType mainPromotionPawnType[COLOR_NB] = {PAWN, PAWN};
   PieceSet promotionPawnTypes[COLOR_NB] = {piece_set(PAWN), piece_set(PAWN)};
   PieceSet promotionPieceTypes[COLOR_NB] = {piece_set(QUEEN) | ROOK | BISHOP | KNIGHT,
                                             piece_set(QUEEN) | ROOK | BISHOP | KNIGHT};
   bool sittuyinPromotion = false;
   int promotionLimit[PIECE_TYPE_NB] = {}; // 0 means unlimited
+  bool promotionSteal = false;
+  bool promotionRequireInHand = false;
+  bool promotionConsumeInHand = false;
   PieceType promotedPieceType[PIECE_TYPE_NB] = {};
   bool piecePromotionOnCapture = false;
   bool mandatoryPawnPromotion = true;
   bool mandatoryPiecePromotion = false;
   bool pieceDemotion = false;
   bool blastOnCapture = false;
+  bool blastOnMove = false;
+  bool captureMorph = false;
+  bool rexExclusiveMorph = false;
+  bool blastPromotion = false;
+  bool blastDiagonals = true;
+  bool blastCenter = true;
   PieceSet blastImmuneTypes = NO_PIECE_SET;
   PieceSet mutuallyImmuneTypes = NO_PIECE_SET;
+  PieceSet mutuallyHopIllegalTypes = NO_PIECE_SET;
+  PieceSet captureForbidden[PIECE_TYPE_NB] = {};
+  PieceSet captureForbiddenToKing = NO_PIECE_SET;
   PieceSet petrifyOnCaptureTypes = NO_PIECE_SET;
   bool petrifyBlastPieces = false;
-  PieceSet prohibitedCaptures[COLOR_NB][PIECE_TYPE_NB] = {};
-  uint64_t lionMoveMask[PIECE_TYPE_NB] = {};
-  uint64_t lionEffectivePathMask[COLOR_NB][PIECE_TYPE_NB][SQUARE_NB] = {};
+  int removeConnectN = 0;
+  bool removeConnectNByType = false;
+  bool surroundCaptureOpposite = false;
+  bool surroundCaptureEdge = false;
+  Bitboard surroundCaptureMaxRegion = 0;
+  Bitboard surroundCaptureHostileRegion = 0;
   bool doubleStep = true;
   Bitboard doubleStepRegion[COLOR_NB] = {Rank2BB, Rank7BB};
   Bitboard tripleStepRegion[COLOR_NB] = {};
+  bool pieceSpecificDoubleStepRegion = false;
+  PieceTypeBitboardGroup whitePieceDoubleStepRegion;
+  PieceTypeBitboardGroup blackPieceDoubleStepRegion;
+  bool pieceSpecificTripleStepRegion = false;
+  PieceTypeBitboardGroup whitePieceTripleStepRegion;
+  PieceTypeBitboardGroup blackPieceTripleStepRegion;
   Bitboard enPassantRegion[COLOR_NB] = {AllSquares, AllSquares};
   PieceSet enPassantTypes[COLOR_NB] = {piece_set(PAWN), piece_set(PAWN)};
   bool castling = true;
@@ -93,43 +115,91 @@ struct Variant {
   bool oppositeCastling = false;
   PieceType kingType = KING;
   bool checking = true;
+  bool allowChecks = false;
   bool dropChecks = true;
+  bool dropMates = true;
   bool mustCapture = false;
+  bool mustCaptureByColor[COLOR_NB] = {false, false};
+  bool selfCapture = false;
   bool mustDrop = false;
+  bool mustDropByColor[COLOR_NB] = {false, false};
   PieceType mustDropType = ALL_PIECES;
+  PieceType mustDropTypeByColor[COLOR_NB] = {ALL_PIECES, ALL_PIECES};
+  bool isPriorityDrop[PIECE_TYPE_NB] = {};
   bool pieceDrops = false;
+  bool virtualDrops = true;
+  bool virtualDropLimitEnabled = false;
+  int virtualDropLimit[PIECE_TYPE_NB] = {};
   bool dropLoop = false;
-  bool capturesToHand = false;
+  CapturingRule captureType = MOVE_OUT;
   bool firstRankPawnDrops = false;
   bool promotionZonePawnDrops = false;
   EnclosingRule enclosingDrop = NO_ENCLOSING;
   Bitboard enclosingDropStart = 0;
   Bitboard dropRegion[COLOR_NB] = {AllSquares, AllSquares};
+  bool pieceSpecificDropRegion = false;
+  PieceTypeBitboardGroup whitePieceDropRegion;
+  PieceTypeBitboardGroup blackPieceDropRegion;
   bool sittuyinRookDrop = false;
   bool dropOppositeColoredBishop = false;
   bool dropPromoted = false;
   PieceType dropNoDoubled = NO_PIECE_TYPE;
   int dropNoDoubledCount = 1;
+  PieceSet hostageExchange[PIECE_TYPE_NB] = {};
+  bool prisonPawnPromotion = false;
   bool immobilityIllegal = false;
   bool gating = false;
   WallingRule wallingRule = NO_WALLING;
   Bitboard wallingRegion[COLOR_NB] = {AllSquares, AllSquares};
   bool wallOrMove = false;
   bool seirawanGating = false;
+  bool commitGates = false;
+  PieceSet jumpCaptureTypes = NO_PIECE_SET;
+  bool forcedJumpContinuation = false;
+  PieceSet doubleLionTypes = NO_PIECE_SET;     // Piece types with Lion double-move
+  PieceSet doubleWerewolfTypes = NO_PIECE_SET;  // Piece types with Werewolf double-move
   bool cambodianMoves = false;
   Bitboard diagonalLines = 0;
   bool pass[COLOR_NB] = {false, false};
   bool passOnStalemate[COLOR_NB] = {false, false};
+  std::vector<int> multimoves = {};
+  bool multimoveCheck = true;
+  bool multimoveCapture = true;
   bool makpongRule = false;
   bool flyingGeneral = false;
+  bool diagonalGeneral = false;
   Rank soldierPromotionRank = RANK_1;
   EnclosingRule flipEnclosedPieces = NO_ENCLOSING;
   bool freeDrops = false;
+  bool payPointsToDrop = false;
+  bool passUntilSetup = false;
+#ifdef SUDOKU_VARIANTS
+  bool sudoku = false;
+  int sudokuBoxWidth = 4;
+  int sudokuBoxHeight = 2;
+  int sudokuAllowedPawns = FILE_NB;
+  bool sudokuRoyalConflict = false;
+#endif
+
+  enum PotionType : int {
+      POTION_FREEZE,
+      POTION_JUMP,
+      POTION_TYPE_NB
+  };
+
+  bool potions = false;
+  PieceType potionPiece[POTION_TYPE_NB] = {NO_PIECE_TYPE, NO_PIECE_TYPE};
+  int potionCooldown[POTION_TYPE_NB] = {};
+  bool potionDropOnOccupied = false;
 
   // game end
   PieceSet nMoveRuleTypes[COLOR_NB] = {piece_set(PAWN), piece_set(PAWN)};
   int nMoveRule = 50;
+  int nMoveRuleImmediate = 0;
+  int nMoveHardLimitRule = 0;
+  Value nMoveHardLimitRuleValue = VALUE_DRAW;
   int nFoldRule = 3;
+  int nFoldRuleImmediate = 0;
   Value nFoldValue = VALUE_DRAW;
   bool nFoldValueAbsolute = false;
   bool perpetualCheckIllegal = false;
@@ -143,7 +213,12 @@ struct Variant {
   bool bikjangRule = false;
   Value extinctionValue = VALUE_NONE;
   bool extinctionClaim = false;
+  // Deprecated legacy switch kept for compatibility with existing configs.
   bool extinctionPseudoRoyal = false;
+  PieceSet pseudoRoyalTypes = NO_PIECE_SET;
+  int pseudoRoyalCount = 1;
+  PieceSet antiRoyalTypes = NO_PIECE_SET;
+  int antiRoyalCount = 1;
   bool dupleCheck = false;
   PieceSet extinctionPieceTypes = NO_PIECE_SET;
   int extinctionPieceCount = 0;
@@ -157,6 +232,8 @@ struct Variant {
   bool checkCounting = false;
   int connectN = 0;
   PieceSet connectPieceTypes = ~NO_PIECE_SET;
+  bool connectGoalByType = false;
+  std::string connectPieceGoal[COLOR_NB] = {};
   bool connectHorizontal = true;
   bool connectVertical = true;
   bool connectDiagonal = true;
@@ -164,11 +241,18 @@ struct Variant {
   Bitboard connectRegion2[COLOR_NB] = {};
   int connectNxN = 0;
   int collinearN = 0;
+  int connectGroup = 0;
   Value connectValue = VALUE_MATE;
   MaterialCounting materialCounting = NO_MATERIAL_COUNTING;
   bool adjudicateFullBoard = false;
   CountingRule countingRule = NO_COUNTING;
   CastlingRights castlingWins = NO_CASTLING;
+  bool pointsCounting = false;
+  PointsRule pointsRuleCaptures = POINTS_US;
+  int piecePoints[PIECE_TYPE_NB] = {}; //for games of points, not evaluation
+  Value pointsGoalValue = VALUE_MATE;
+  Value pointsGoalSimulValue = VALUE_MATE;
+  int pointsGoal = 0;
 
   // Derived properties
   bool fastAttacks = true;
@@ -185,47 +269,21 @@ struct Variant {
   bool shogiStylePromotions = false;
   std::vector<Direction> connectDirections;
   PieceSet connectPieceTypesTrimmed = ~NO_PIECE_SET;
-
-  Variant() {
-      pieceToSymbol.resize(PIECE_NB);
-      pieceToSymbolSynonyms.resize(PIECE_NB);
-      for (Piece p = NO_PIECE; p < PIECE_NB; ++p)
-      {
-          if (pieceToChar[p] != ' ')
-              pieceToSymbol[p] = std::string(1, pieceToChar[p]);
-          if (pieceToCharSynonyms[p] != ' ')
-              pieceToSymbolSynonyms[p] = std::string(1, pieceToCharSynonyms[p]);
-      }
-  }
-
-  static std::string black_symbol(std::string s) {
-      std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
-      return s;
-  }
-
-  static std::string white_symbol(std::string s) {
-      std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::toupper(c); });
-      return s;
-  }
-
+  std::vector<PieceType> connectPieceGoalTypes[COLOR_NB];
+  bool multimovePass[START_MULTIMOVES]; // irregular pattern of multimove passes at game start
+  int multimoveOffset; // end of multimoveStart sequence
+  int multimoveCycle; // length in ply of both players once playing a multimove
+  int multimoveCycleShift; // phase shift in multimove cycle when switching color
   void add_piece(PieceType pt, char c, std::string betza = "", char c2 = ' ') {
-      add_piece(pt, std::string(1, c), betza, c2 == ' ' ? "" : std::string(1, c2));
-  }
-
-  void add_piece(PieceType pt, std::string symbol, std::string betza = "", std::string symbol2 = "") {
       // Avoid ambiguous definition by removing existing piece with same letter
       size_t idx;
-      if (symbol.size() == 1 && (idx = pieceToChar.find(toupper(symbol[0]))) != std::string::npos)
+      if ((idx = pieceToChar.find(toupper(c))) != std::string::npos)
           remove_piece(PieceType(idx));
       // Now add new piece
-      pieceToSymbol[make_piece(WHITE, pt)] = white_symbol(symbol);
-      pieceToSymbol[make_piece(BLACK, pt)] = black_symbol(symbol);
-      pieceToChar[make_piece(WHITE, pt)] = symbol.size() == 1 ? toupper(symbol[0]) : ' ';
-      pieceToChar[make_piece(BLACK, pt)] = symbol.size() == 1 ? tolower(symbol[0]) : ' ';
-      pieceToSymbolSynonyms[make_piece(WHITE, pt)] = white_symbol(symbol2);
-      pieceToSymbolSynonyms[make_piece(BLACK, pt)] = black_symbol(symbol2);
-      pieceToCharSynonyms[make_piece(WHITE, pt)] = symbol2.size() == 1 ? toupper(symbol2[0]) : ' ';
-      pieceToCharSynonyms[make_piece(BLACK, pt)] = symbol2.size() == 1 ? tolower(symbol2[0]) : ' ';
+      pieceToChar[make_piece(WHITE, pt)] = toupper(c);
+      pieceToChar[make_piece(BLACK, pt)] = tolower(c);
+      pieceToCharSynonyms[make_piece(WHITE, pt)] = toupper(c2);
+      pieceToCharSynonyms[make_piece(BLACK, pt)] = tolower(c2);
       pieceTypes |= pt;
       // Add betza notation for custom piece
       if (is_custom(pt))
@@ -241,10 +299,6 @@ struct Variant {
       pieceToChar[make_piece(BLACK, pt)] = ' ';
       pieceToCharSynonyms[make_piece(WHITE, pt)] = ' ';
       pieceToCharSynonyms[make_piece(BLACK, pt)] = ' ';
-      pieceToSymbol[make_piece(WHITE, pt)].clear();
-      pieceToSymbol[make_piece(BLACK, pt)].clear();
-      pieceToSymbolSynonyms[make_piece(WHITE, pt)].clear();
-      pieceToSymbolSynonyms[make_piece(BLACK, pt)].clear();
       pieceTypes &= ~piece_set(pt);
       // erase from promotion types to ensure consistency
       promotionPieceTypes[WHITE] &= ~piece_set(pt);
@@ -254,8 +308,6 @@ struct Variant {
   void reset_pieces() {
       pieceToChar = std::string(PIECE_NB, ' ');
       pieceToCharSynonyms = std::string(PIECE_NB, ' ');
-      pieceToSymbol.assign(PIECE_NB, "");
-      pieceToSymbolSynonyms.assign(PIECE_NB, "");
       pieceTypes = NO_PIECE_SET;
       // clear promotion types to ensure consistency
       promotionPieceTypes[WHITE] = NO_PIECE_SET;
@@ -270,6 +322,7 @@ struct Variant {
   }
 
   Variant* conclude();
+
 };
 
 class VariantMap : public std::map<std::string, const Variant*> {

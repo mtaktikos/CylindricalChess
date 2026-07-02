@@ -20,6 +20,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cctype>
 
 #include "parser.h"
 #include "piece.h"
@@ -48,6 +49,8 @@ namespace {
     Variant* chess_variant() {
         Variant* v = chess_variant_base()->init();
         v->nnueAlias = "nn-";
+        v->nMoveRuleImmediate = 75;
+        v->nFoldRuleImmediate = 5;
         return v;
     }
     // Chess960 aka Fischer random chess
@@ -78,6 +81,28 @@ namespace {
         Variant* v = chess_variant_base()->init();
         v->doubleStepRegion[WHITE] = AllSquares;
         v->doubleStepRegion[BLACK] = AllSquares;
+        return v;
+    }
+    Variant* spell_chess_variant() {
+        Variant* v = chess_variant()->init();
+        v->variantTemplate = "spell-chess";
+        v->potions = true;
+        v->potionPiece[Variant::POTION_FREEZE] = CUSTOM_PIECE_1;
+        v->potionPiece[Variant::POTION_JUMP] = CUSTOM_PIECE_2;
+        v->potionCooldown[Variant::POTION_FREEZE] = 3;
+        v->potionCooldown[Variant::POTION_JUMP] = 3;
+        v->potionDropOnOccupied = true;
+        v->remove_piece(KING);
+        v->add_piece(COMMONER, 'k');
+        v->castlingKingPiece[WHITE] = v->castlingKingPiece[BLACK] = COMMONER;
+        v->pieceToChar[make_piece(WHITE, CUSTOM_PIECE_1)] = 'F';
+        v->pieceToChar[make_piece(BLACK, CUSTOM_PIECE_1)] = 'f';
+        v->pieceToChar[make_piece(WHITE, CUSTOM_PIECE_2)] = 'J';
+        v->pieceToChar[make_piece(BLACK, CUSTOM_PIECE_2)] = 'j';
+        v->extinctionValue = -VALUE_MATE;
+        v->extinctionPieceTypes = piece_set(COMMONER);
+        v->extinctionPieceCount = 0;
+        v->startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR[JJFFFFFjjfffff] w KQkq - 0 1";
         return v;
     }
     // Berolina Chess
@@ -131,6 +156,25 @@ namespace {
         v->nMoveRuleTypes[WHITE] = v->nMoveRuleTypes[BLACK] = piece_set(CUSTOM_PIECE_1);
         v->startFen = "knbrp3/bqpp4/npp5/rp1p3P/p3P1PR/5PPN/4PPQB/3PRBNK w - - 0 1";
         v->doubleStep = false;
+        return v;
+    }
+    // Balanced alternation
+    // https://ieee-cog.org/2021/assets/papers/paper_230.pdf
+    Variant* balanced_alternation_variant() {
+        Variant* v = chess_variant()->init();
+        v->multimoves = {1, 2, 2, 1, 1};
+        v->multimoveCheck = false;
+        v->multimoveCapture = false;
+        v->nnueAlias = "nn-";
+        return v;
+    }
+    // Balanced alternation 2
+    Variant* balanced_alternation2_variant() {
+        Variant* v = chess_variant()->init();
+        v->multimoves = {2, 2, 1, 1};
+        v->multimoveCheck = false;
+        v->multimoveCapture = true;
+        v->nnueAlias = "nn-";
         return v;
     }
     // Pseudo-variant only used for endgame initialization
@@ -274,20 +318,6 @@ namespace {
         v->startFen = "rnbakbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBAKBNR w KQkq - 0 1";
         v->promotionPieceTypes[WHITE] = piece_set(AMAZON) | ROOK | BISHOP | KNIGHT;
         v->promotionPieceTypes[BLACK] = piece_set(AMAZON) | ROOK | BISHOP | KNIGHT;
-        return v;
-    }
-    // Georgian chess
-    // Traditional Georgian rules:
-    // - Queen moves as an Amazon (Queen + Knight)
-    // - No castling
-    // - No en passant
-    // Also see Murray p. 378
-    Variant* georgian_variant() {
-        Variant* v = amazon_variant()->init();
-        v->startFen = "rnbakbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBAKBNR w - - 0 1";
-        v->castling = false;
-        v->enPassantRegion[WHITE] = v->enPassantRegion[BLACK] = 0; // no en passant
-        v->nnueAlias = "amazon";
         return v;
     }
     // Nightrider chess
@@ -636,7 +666,7 @@ namespace {
         v->variantTemplate = "crazyhouse";
         v->startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR[] w KQkq - 0 1";
         v->pieceDrops = true;
-        v->capturesToHand = true;
+        v->captureType = HAND;
         return v;
     }
     // Loop chess
@@ -657,6 +687,20 @@ namespace {
         v->nnueAlias = "crazyhouse";
         return v;
     }
+    // Almost hostage chess
+    // https://en.wikipedia.org/wiki/Hostage_chess
+    Variant* hostage_variant() {
+        Variant* v = loop_variant()->init();
+        v->nnueAlias = "";
+        v->captureType = PRISON;
+        v->prisonPawnPromotion = true;
+        v->hostageExchange[QUEEN]  = piece_set(QUEEN);
+        v->hostageExchange[ROOK]   = piece_set(ROOK) | QUEEN;
+        v->hostageExchange[KNIGHT] = piece_set(KNIGHT) | BISHOP | ROOK | QUEEN;
+        v->hostageExchange[BISHOP] = piece_set(KNIGHT) | BISHOP | ROOK | QUEEN;
+        v->hostageExchange[PAWN]   = piece_set(PAWN) | KNIGHT | BISHOP | ROOK | QUEEN;
+        return v;
+    }
     // Bughouse
     // A four player variant where captured pieces are introduced on the other board
     // https://en.wikipedia.org/wiki/Bughouse_chess
@@ -664,7 +708,7 @@ namespace {
         Variant* v = crazyhouse_variant()->init();
         v->variantTemplate = "bughouse";
         v->twoBoards = true;
-        v->capturesToHand = false;
+        v->captureType = MOVE_OUT;
         v->stalemateValue = -VALUE_MATE;
         return v;
     }
@@ -691,7 +735,7 @@ namespace {
         v->pocketSize = 2;
         v->startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR[Nn] w KQkq - 0 1";
         v->pieceDrops = true;
-        v->capturesToHand = false;
+        v->captureType = MOVE_OUT;
         return v;
     }
     // Placement/Pre-chess
@@ -703,7 +747,7 @@ namespace {
         v->startFen = "8/pppppppp/8/8/8/8/PPPPPPPP/8[KQRRBBNNkqrrbbnn] w - - 0 1";
         v->mustDrop = true;
         v->pieceDrops = true;
-        v->capturesToHand = false;
+        v->captureType = MOVE_OUT;
         v->dropRegion[WHITE] = Rank1BB;
         v->dropRegion[BLACK] = Rank8BB;
         v->dropOppositeColoredBishop = true;
@@ -722,7 +766,7 @@ namespace {
         v->add_piece(MET, 'f');
         v->mustDrop = true;
         v->pieceDrops = true;
-        v->capturesToHand = false;
+        v->captureType = MOVE_OUT;
         v->dropRegion[WHITE] = Rank1BB | Rank2BB | Rank3BB;
         v->dropRegion[BLACK] = Rank8BB | Rank7BB | Rank6BB;
         v->sittuyinRookDrop = true;
@@ -758,7 +802,7 @@ namespace {
         Variant* v = seirawan_variant()->init();
         v->variantTemplate = "crazyhouse";
         v->pieceDrops = true;
-        v->capturesToHand = true;
+        v->captureType = HAND;
         return v;
     }
     // Dragon Chess
@@ -774,7 +818,7 @@ namespace {
         v->add_piece(ARCHBISHOP, 'd');
         v->startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR[Dd] w KQkq - 0 1";
         v->pieceDrops = true;
-        v->capturesToHand = false;
+        v->captureType = MOVE_OUT;
         v->dropRegion[WHITE] = Rank1BB;
         v->dropRegion[BLACK] = Rank8BB;
         v->promotionPieceTypes[WHITE] = piece_set(ARCHBISHOP) | QUEEN | ROOK | BISHOP | KNIGHT;
@@ -809,7 +853,7 @@ namespace {
         v->add_piece(KING, 'k');
         v->startFen = "rbsgk/4p/5/P4/KGSBR[-] w 0 1";
         v->pieceDrops = true;
-        v->capturesToHand = true;
+        v->captureType = HAND;
         v->promotionRegion[WHITE] = Rank5BB;
         v->promotionRegion[BLACK] = Rank1BB;
         v->doubleStep = false;
@@ -897,19 +941,16 @@ namespace {
         v->add_piece(GOLD, 'h');
         v->add_piece(FERS, 'e');
         v->add_piece(WAZIR, 'g');
-        v->add_piece(COMMONER, 'l');
+        v->add_piece(KING, 'l');
         v->startFen = "gle/1c1/1C1/ELG[-] w 0 1";
         v->promotionRegion[WHITE] = Rank4BB;
         v->promotionRegion[BLACK] = Rank1BB;
         v->mandatoryPiecePromotion = true;
         v->immobilityIllegal = false;
         v->shogiPawnDropMateIllegal = false;
-        v->extinctionValue = -VALUE_MATE;
-        v->extinctionPieceTypes = piece_set(COMMONER);
-        v->flagPiece[WHITE] = v->flagPiece[BLACK] = COMMONER;
+        v->flagPiece[WHITE] = v->flagPiece[BLACK] = KING;
         v->flagRegion[WHITE] = Rank4BB;
         v->flagRegion[BLACK] = Rank1BB;
-        v->flagPieceSafe = true;
         v->dropNoDoubled = NO_PIECE_TYPE;
         v->nFoldValue = VALUE_DRAW;
         v->perpetualCheckIllegal = false;
@@ -962,7 +1003,7 @@ namespace {
         v->add_piece(CUSTOM_PIECE_7, 'e', "KbRfBbF2"); // eagle
         v->startFen = "rpckcpl/3f3/sssssss/2s1S2/SSSSSSS/3F3/LPCKCPR[-] w 0 1";
         v->pieceDrops = true;
-        v->capturesToHand = true;
+        v->captureType = HAND;
         v->promotionRegion[WHITE] = Rank6BB | Rank7BB;
         v->promotionRegion[BLACK] = Rank2BB | Rank1BB;
         v->doubleStep = false;
@@ -1245,7 +1286,45 @@ namespace {
         v->flyingGeneral = true;
         return v;
     }
+    // Benedict Morph
+    // https://greenchess.net/rules.php?v=benedict-chess
+    Variant* benedictmorph_variant() {
+        Variant* v = chess_variant_base()->init();
+        v->captureMorph = true;
+        v->rexExclusiveMorph = true;
+        return v;
+    }
 #ifdef LARGEBOARDS
+    // Musketeer Chess
+    // https://musketeerchess.net
+    // A Seirawan-inspired variant with unique gating mechanics.
+    // Pieces are introduced to predefined squares, chosen before game start, this is named Gating Selection = Where the chosen piece is going to be gated
+    // Gating of the additional pieces is activated when first-rank pieces move for the first time. Only the additional piece waiting to be gated on that specific square can be introduced.
+    // Features a variety of new pieces, thus there is a piece selection step where both players must agree to chose the additional piece combination.
+    // In Fairy Stockfish the Piece Selection is determined at the PieceToCharTable, this default combination can be changed in variant.ini
+    Variant* musketeer_variant() {
+        Variant* v = chess_variant();
+        v->variantTemplate = "seirawan";
+        v->pieceToCharTable = "PNBRQ.E....C.AF.MH.SU........D............LKpnbrq.e....c.af.mh.su........d............lk";  // The default piece combo in Musketeer Chess is Leopard L and Musketeer Cannon O
+        v->add_piece(ARCHBISHOP, 'a');
+        v->add_piece(CHANCELLOR, 'm');
+        v->add_piece(AMAZON, 'd'); // also called Dragon in Musketeer, but Amazon is the most accurate  
+        v->add_piece(CUSTOM_PIECE_1, 'l', "B2N"); // Leopard
+        v->add_piece(CUSTOM_PIECE_2, 'h', "ADGH"); // Hawk
+        v->add_piece(CUSTOM_PIECE_3, 'u', "NC"); // Unicorn
+        v->add_piece(CUSTOM_PIECE_4, 's', "B2ND"); // Spider
+        v->add_piece(CUSTOM_PIECE_5, 'f', "B3vND"); // Fortress
+        v->add_piece(CUSTOM_PIECE_6, 'e', "FWDA"); // Musketeer Elephant
+        v->add_piece(CUSTOM_PIECE_7, 'c', "FWDsN"); // Musketeer Cannon
+
+        //"********/rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR/******** w KQkq - 0 1"
+        v->startFen = "lc******/rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR/LC****** w KQkq - 0 1";
+        v->gating = true;
+        v->commitGates = true;
+        v->promotionPieceTypes[BLACK] = piece_set(CUSTOM_PIECE_1) | CUSTOM_PIECE_7 | QUEEN | ROOK | BISHOP | KNIGHT;
+        v->promotionPieceTypes[WHITE] = piece_set(CUSTOM_PIECE_1) | CUSTOM_PIECE_7 | QUEEN | ROOK | BISHOP | KNIGHT;
+        return v;
+    }
     // Shogi (Japanese chess)
     // https://en.wikipedia.org/wiki/Shogi
     Variant* shogi_variant() {
@@ -1278,7 +1357,7 @@ namespace {
         v->add_piece(COMMONER, 'k');
         v->add_piece(CUSTOM_PIECE_1, 'e', "FsfW"); // drunk elephant
         v->startFen = "lnsgkgsnl/1r2e2b1/ppppppppp/9/9/9/PPPPPPPPP/1B2E2R1/LNSGKGSNL w 0 1";
-        v->capturesToHand = false;
+        v->captureType = MOVE_OUT;
         v->pieceDrops = false;
         v->promotedPieceType[CUSTOM_PIECE_1] = COMMONER;
         v->castlingKingPiece[WHITE] = v->castlingKingPiece[BLACK] = COMMONER;
@@ -1313,7 +1392,7 @@ namespace {
         v->promotedPieceType[CUSTOM_PIECE_2] = CUSTOM_PIECE_4;
         v->promotedPieceType[CUSTOM_PIECE_3] = ROOK;
         v->pieceDrops = true;
-        v->capturesToHand = true;
+        v->captureType = HAND;
         v->doubleStep = false;
         v->castling = false;
         v->dropNoDoubled = SHOGI_PAWN;
@@ -1364,7 +1443,7 @@ namespace {
         Variant* v = capablanca_variant()->init();
         v->startFen = "rnabqkbcnr/pppppppppp/10/10/10/10/PPPPPPPPPP/RNABQKBCNR[] w KQkq - 0 1";
         v->pieceDrops = true;
-        v->capturesToHand = true;
+        v->captureType = HAND;
         return v;
     }
     // Capablanca random chess (CRC)
@@ -1501,8 +1580,6 @@ namespace {
         v->flagRegion[WHITE] = make_bitboard(SQ_E5);
         v->flagRegion[BLACK] = make_bitboard(SQ_E5);
         v->flagMove = true;
-        // we could remove the useless extra move when the flag piece can not be captured
-        // v->flagPieceSafe = true;
         return v;
     }
     // Courier chess
@@ -1623,6 +1700,30 @@ namespace {
         v->doubleStepRegion[BLACK] = Rank8BB;
         return v;
     }
+#ifdef VERY_LARGE_BOARDS
+    // Omega chess on a 12x12 board
+    Variant* omega_variant() {
+        Variant* v = chess_variant_base()->init();
+        v->pieceToCharTable = "PNBRQ..C.W...........Kpnbrq..c.w...........k";
+        v->maxRank = RANK_12;
+        v->maxFile = FILE_L;
+        v->startFen = "w**********w/*crnbqkbnrc*/*pppppppppp*/*10*/*10*/*10*/*10*/*10*/*10*/*PPPPPPPPPP*/*CRNBQKBNRC*/W**********W w KQkq - 0 1";
+        v->add_piece(CUSTOM_PIECE_1, 'c', "DAW"); // Champion
+        v->add_piece(CUSTOM_PIECE_2, 'w', "CF"); // Wizard
+        v->castlingKingsideFile = FILE_I;
+        v->castlingQueensideFile = FILE_E;
+        v->castlingRank = RANK_2;
+        v->promotionRegion[WHITE] = Rank9BB | Rank10BB;
+        v->promotionRegion[BLACK] = Rank2BB | Rank1BB;
+        v->promotionPieceTypes[WHITE] = piece_set(CUSTOM_PIECE_2) | CUSTOM_PIECE_1 | QUEEN | ROOK | BISHOP | KNIGHT;
+        v->promotionPieceTypes[BLACK] = v->promotionPieceTypes[WHITE];
+        v->doubleStepRegion[WHITE] = Rank3BB;
+        v->doubleStepRegion[BLACK] = Rank8BB;
+        v->tripleStepRegion[WHITE] = Rank3BB;
+        v->tripleStepRegion[BLACK] = Rank8BB;
+        return v;
+    }
+#endif
     // Troitzky Chess
     // https://www.chessvariants.com/play/troitzky-chess
     Variant* troitzky_variant() {
@@ -1794,6 +1895,7 @@ namespace {
         v->add_piece(WAZIR, 'a');
         v->add_piece(JANGGI_CANNON, 'c');
         v->add_piece(JANGGI_ELEPHANT, 'b', 'e');
+        v->mutuallyHopIllegalTypes = piece_set(JANGGI_CANNON);
         v->startFen = "rnba1abnr/4k4/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/4K4/RNBA1ABNR w - - 0 1";
         v->mobilityRegion[WHITE][WAZIR] = v->mobilityRegion[WHITE][KING];
         v->mobilityRegion[BLACK][WAZIR] = v->mobilityRegion[BLACK][KING];
@@ -1839,63 +1941,77 @@ namespace {
     }
 #endif
 
-} // namespace
+    // Mighty Lion Chess
+    // Standard chess with a Lion replacing the Queen (double-move piece)
+    // https://www.chessvariants.com/large.dir/mighty-lion.html
+    Variant* mightylion_variant() {
+        Variant* v = chess_variant()->init();
+        v->remove_piece(QUEEN);
+        // Lion: moves as King + Knight non-captures, plus double-move captures
+        // KADN covers the Lion's non-capture reach: King + Alfil + Dabbaba + Knight
+        v->add_piece(CUSTOM_PIECE_1, 'l', "KADN");
+        v->startFen = "rnblkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBLKBNR w KQkq - 0 1";
+        v->castlingRookPieces[WHITE] = v->castlingRookPieces[BLACK] = piece_set(ROOK);
+        v->promotionPieceTypes[WHITE] = piece_set(CUSTOM_PIECE_1) | ROOK | BISHOP | KNIGHT;
+        v->promotionPieceTypes[BLACK] = piece_set(CUSTOM_PIECE_1) | ROOK | BISHOP | KNIGHT;
+        v->doubleLionTypes = piece_set(CUSTOM_PIECE_1);
+        return v;
+    }
 
-namespace {
+    // Werewolf Chess
+    // Standard chess with Werewolf replacing Queen (linear double-move piece)
+    Variant* werewolf_variant() {
+        Variant* v = chess_variant()->init();
+        v->remove_piece(QUEEN);
+        // Werewolf: moves as King + Dabbaba non-captures, plus linear double-move captures
+        // KD covers the Werewolf's non-capture reach: King + Dabbaba
+        v->add_piece(CUSTOM_PIECE_1, 'w', "KD");
+        v->startFen = "rnbwkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBWKBNR w KQkq - 0 1";
+        v->castlingRookPieces[WHITE] = v->castlingRookPieces[BLACK] = piece_set(ROOK);
+        v->promotionPieceTypes[WHITE] = piece_set(ROOK) | BISHOP | KNIGHT;
+        v->promotionPieceTypes[BLACK] = piece_set(ROOK) | BISHOP | KNIGHT;
+        v->doubleWerewolfTypes = piece_set(CUSTOM_PIECE_1);
+        return v;
+    }
 
-constexpr Direction LionDirectionsForVariant[8] = {
-  NORTH, NORTH_EAST, EAST, SOUTH_EAST, SOUTH, SOUTH_WEST, WEST, NORTH_WEST
-};
+    // Chu Shogi (simplified)
+    // Simplified Chu Shogi with Lion piece featuring double-move capability on a 12x12 board
+    // https://en.wikipedia.org/wiki/Chu_shogi
+    Variant* chu_variant() {
+        Variant* v = chess_variant_base()->init();
+        v->maxRank = RANK_12;
+        v->maxFile = FILE_L;
+        v->castling = false;
+        v->doubleStep = false;
+        v->stalemateValue = -VALUE_MATE;
 
-constexpr int abs_int(int x) { return x < 0 ? -x : x; }
+        // Define pieces with Betza notation
+        v->add_piece(PAWN, 'p', "fmWfcF");                 // Pawn
+        v->add_piece(LANCE, 'l', "fR");                     // Lance
+        v->add_piece(CUSTOM_PIECE_1, 'n', "KADN");         // Lion (double-move)
+        v->add_piece(CUSTOM_PIECE_2, 'g', "WfF");          // Gold General
+        v->add_piece(CUSTOM_PIECE_3, 's', "FfW");          // Silver General
+        v->add_piece(ROOK, 'r', "R");                       // Rook
+        v->add_piece(BISHOP, 'b', "B");                     // Bishop
+        v->add_piece(QUEEN, 'q', "Q");                      // Free King (Queen)
+        v->add_piece(KING, 'k', "K");                       // King
+        v->add_piece(CUSTOM_PIECE_4, 'c', "WbF");          // Copper General
+        v->add_piece(CUSTOM_PIECE_5, 'i', "FfW");          // Ferocious Leopard
+        v->add_piece(CUSTOM_PIECE_6, 'e', "FbR");          // Blind Tiger
 
-constexpr int square_distance_by_coords(int f1, int r1, int f2, int r2) {
-  return std::max(abs_int(f1 - f2), abs_int(r1 - r2));
-}
+        v->startFen = "lcsgensgscil/1b1qq1b5/1rnpppppnr2/ppp4pppp2/12/12/12/12/2PPPP4PPP/2RNPPPPPNr1/5B1QQ1B1/LICSGSNEGSCL w - - 0 1";
 
-uint64_t flip_lion_path_mask(uint64_t mask) {
-  uint64_t flipped = 0;
-  for (int path = 0; path < 64; ++path)
-      if (mask & (1ULL << path))
-      {
-          int first = path / 8;
-          int second = path % 8;
-          flipped |= 1ULL << ((((first + 4) & 7) * 8) + ((second + 4) & 7));
-      }
-  return flipped;
-}
+        // Set up promotion regions
+        v->promotionRegion[WHITE] = Rank9BB | Rank10BB | Rank11BB | Rank12BB;
+        v->promotionRegion[BLACK] = Rank1BB | Rank2BB | Rank3BB | Rank4BB;
+        v->mandatoryPawnPromotion = false;
+        v->mandatoryPiecePromotion = false;
 
-bool variant_lion_path_is_ok(Square from, int path, File maxFile, Rank maxRank) {
-  int fromFile = file_of(from);
-  int fromRank = rank_of(from);
+        // Lion has double-move capability
+        v->doubleLionTypes = piece_set(CUSTOM_PIECE_1);
 
-  if (fromFile > maxFile || fromRank > maxRank)
-      return false;
-
-  int first = path / 8;
-  int second = path % 8;
-  int via = int(from) + int(LionDirectionsForVariant[first]);
-  if (!is_ok(Square(via)))
-      return false;
-
-  int viaFile = via % FILE_NB;
-  int viaRank = via / FILE_NB;
-  if (   viaFile > maxFile
-      || viaRank > maxRank
-      || square_distance_by_coords(fromFile, fromRank, viaFile, viaRank) != 1)
-      return false;
-
-  int to = via + int(LionDirectionsForVariant[second]);
-  if (!is_ok(Square(to)))
-      return false;
-
-  int toFile = to % FILE_NB;
-  int toRank = to / FILE_NB;
-  return    toFile <= maxFile
-         && toRank <= maxRank
-         && square_distance_by_coords(viaFile, viaRank, toFile, toRank) == 1
-         && square_distance_by_coords(fromFile, fromRank, toFile, toRank) <= 2;
-}
+        return v;
+    }
 
 } // namespace
 
@@ -1910,10 +2026,13 @@ void VariantMap::init() {
     add("nocastle", nocastle_variant());
     add("armageddon", armageddon_variant());
     add("torpedo", torpedo_variant());
+    add("spell-chess", spell_chess_variant());
     add("berolina", berolina_variant());
     add("pawnsideways", pawnsideways_variant());
     add("pawnback", pawnback_variant());
     add("legan", legan_variant());
+    add("balancedalternation", balanced_alternation_variant());
+    add("balancedalternation2", balanced_alternation2_variant());
     add("fairy", fairy_variant()); // fairy variant used for endgame code initialization
     add("makruk", makruk_variant());
     add("makpong", makpong_variant());
@@ -1924,7 +2043,6 @@ void VariantMap::init() {
     add("shatranj", shatranj_variant());
     add("chaturanga", chaturanga_variant());
     add("amazon", amazon_variant());
-    add("georgian", georgian_variant());
     add("nightrider", nightrider_variant());
     add("grasshopper", grasshopper_variant());
     add("hoppelpoppel", hoppelpoppel_variant());
@@ -1949,6 +2067,7 @@ void VariantMap::init() {
     add("isolation", isolation_variant());
     add("isolation7x7", isolation7x7_variant());
     add("snailtrail", snailtrail_variant());
+    add("benedictmorph", benedictmorph_variant());
     add("fox-and-hounds", fox_and_hounds_variant());
 #ifdef ALLVARS
     add("duck", duck_variant());
@@ -1959,6 +2078,7 @@ void VariantMap::init() {
     add("crazyhouse", crazyhouse_variant());
     add("loop", loop_variant());
     add("chessgi", chessgi_variant());
+    add("hostage", hostage_variant());
     add("bughouse", bughouse_variant());
     add("koedem", koedem_variant());
     add("pocketknight", pocketknight_variant());
@@ -1994,6 +2114,7 @@ void VariantMap::init() {
     add("minixiangqi", minixiangqi_variant());
     add("raazuvaa", raazuvaa_variant());
 #ifdef LARGEBOARDS
+    add("musketeer", musketeer_variant());
     add("shogi", shogi_variant());
     add("checkshogi", checkshogi_variant());
     add("shoshogi", shoshogi_variant());
@@ -2015,6 +2136,9 @@ void VariantMap::init() {
     add("opulent", opulent_variant());
     add("tencubed", tencubed_variant());
     add("omicron", omicron_variant());
+#ifdef VERY_LARGE_BOARDS
+    add("omega", omega_variant());
+#endif
     add("troitzky", troitzky_variant());
     add("wolf", wolf_variant());
     add("shako", shako_variant());
@@ -2031,36 +2155,43 @@ void VariantMap::init() {
     add("janggimodern", janggi_modern_variant());
     add("janggicasual", janggi_casual_variant());
 #endif
+    // Double-move variants (Lion/Werewolf from HaChu)
+    add("mightylion", mightylion_variant());
+    add("lion", mightylion_variant());
+    add("werewolf", werewolf_variant());
+    add("chu", chu_variant());
 }
 
 
 // Pre-calculate derived properties
 Variant* Variant::conclude() {
+    // Backward compatibility: legacy extinctionPseudoRoyal used extinction
+    // piece fields to define pseudo-royal behavior.
+    if (extinctionPseudoRoyal && !pseudoRoyalTypes)
+    {
+        pseudoRoyalTypes = extinctionPieceTypes;
+        pseudoRoyalCount = extinctionPieceCount + 1;
+    }
+
+    // Compatibility shim: legacy mutuallyImmuneTypes means same-type captures are forbidden.
+    for (PieceSet ps = mutuallyImmuneTypes; ps; )
+    {
+        PieceType pt = pop_lsb(ps);
+        captureForbidden[pt] |= pt;
+    }
+    captureForbiddenToKing = NO_PIECE_SET;
+    for (PieceSet ps = pieceTypes; ps; )
+    {
+        PieceType pt = pop_lsb(ps);
+        if (captureForbidden[pt] & KING)
+            captureForbiddenToKing |= pt;
+    }
+
     // Enforce consistency to allow runtime optimizations
     if (!doubleStep)
         doubleStepRegion[WHITE] = doubleStepRegion[BLACK] = 0;
     if (!doubleStepRegion[WHITE] && !doubleStepRegion[BLACK])
         doubleStep = false;
-
-    for (Color c : { WHITE, BLACK })
-        for (PieceType pt = NO_PIECE_TYPE; pt < PIECE_TYPE_NB; ++pt)
-            for (Square from = SQ_MIN; from <= SQ_MAX; ++from)
-                lionEffectivePathMask[c][pt][from] = 0;
-
-    for (PieceType pt = NO_PIECE_TYPE; pt < PIECE_TYPE_NB; ++pt)
-    {
-        uint64_t lionMaskByColor[COLOR_NB] = {
-          lionMoveMask[pt],
-          flip_lion_path_mask(lionMoveMask[pt])
-        };
-
-        for (Color c : { WHITE, BLACK })
-            for (Square from = SQ_MIN; from <= SQ_MAX; ++from)
-                for (int path = 0; path < 64; ++path)
-                    if (   (lionMaskByColor[c] & (1ULL << path))
-                        && variant_lion_path_is_ok(from, path, maxFile, maxRank))
-                        lionEffectivePathMask[c][pt][from] |= 1ULL << path;
-    }
 
     // Determine optimizations
     bool restrictedMobility = false;
@@ -2104,7 +2235,7 @@ Variant* Variant::conclude() {
     }
     // We can not use popcount here yet, as the lookup tables are initialized after the variants
     int nnueSquares = (maxRank + 1) * (maxFile + 1);
-    nnueUsePockets = (pieceDrops && (capturesToHand || (!mustDrop && std::bitset<64>(pieceTypes).count() != 1))) || seirawanGating;
+    nnueUsePockets = (pieceDrops && (captureType == HAND || (!mustDrop && std::bitset<64>(pieceTypes).count() != 1))) || seirawanGating;
     int nnuePockets = nnueUsePockets ? 2 * int(maxFile + 1) : 0;
     int nnueNonDropPieceIndices = (2 * std::bitset<64>(pieceTypes).count() - (nnueKing != NO_PIECE_TYPE)) * nnueSquares;
     int nnuePieceIndices = nnueNonDropPieceIndices + 2 * (std::bitset<64>(pieceTypes).count() - (nnueKing != NO_PIECE_TYPE)) * nnuePockets;
@@ -2133,7 +2264,7 @@ Variant* Variant::conclude() {
     // therefore skip proper initialization in case of invalid board size.
     int nnueKingSquare = 0;
     if (nnueKing && nnueSquares <= SQUARE_NB)
-        for (Square s = SQ_MIN; s < nnueSquares; ++s)
+        for (Square s = SQ_A1; s < nnueSquares; ++s)
         {
             Square bitboardSquare = Square(s + s / (maxFile + 1) * (FILE_MAX - maxFile));
             if (   !mobilityRegion[WHITE][nnueKing] || !mobilityRegion[BLACK][nnueKing]
@@ -2176,7 +2307,7 @@ Variant* Variant::conclude() {
                     && !connectN
                     && !blastOnCapture
                     && !petrifyOnCaptureTypes
-                    && !capturesToHand
+                    && captureType == MOVE_OUT
                     && !twoBoards
                     && !restrictedMobility
                     && kingType == KING
@@ -2208,7 +2339,7 @@ Variant* Variant::conclude() {
 
     // If not a connect variant, set connectPieceTypesTrimmed to no pieces.
     // connectPieceTypesTrimmed is separated so that connectPieceTypes is left unchanged for inheritance.
-    if ( !(connectRegion1[WHITE] || connectRegion1[BLACK] || connectN || connectNxN || collinearN) )
+    if ( !(connectRegion1[WHITE] || connectRegion1[BLACK] || connectN || connectNxN || collinearN || connectGroup) )
     {
           connectPieceTypesTrimmed = NO_PIECE_SET;
     }
@@ -2218,6 +2349,41 @@ Variant* Variant::conclude() {
         connectPieceTypesTrimmed = connectPieceTypes & pieceTypes;
     };
 
+    for (Color c : {WHITE, BLACK})
+    {
+        connectPieceGoalTypes[c].clear();
+        for (unsigned char ch : connectPieceGoal[c])
+        {
+            if (std::isspace(ch))
+                continue;
+            size_t idx = pieceToChar.find(std::toupper(ch));
+            if (idx == std::string::npos || idx >= PIECE_TYPE_NB)
+            {
+                connectPieceGoalTypes[c].clear();
+                break;
+            }
+            connectPieceGoalTypes[c].push_back(PieceType(idx));
+        }
+    }
+      // Initialize multimove passing parameters
+      multimoveOffset = 0;
+      for (int j : multimoves)
+      {
+          if (multimoveOffset + 2 * j - 1 >= START_MULTIMOVES)
+              break;
+          // Initialize alternating non-passing/passing moves
+          for (int k = 0; k < 2 * j - 1; k++)
+              multimovePass[multimoveOffset + k] = k % 2;
+          multimoveOffset += 2 * j - 1;
+      }
+      int firstMultimove =  multimoves.size() >= 2 ? multimoves[multimoves.size() - 2]
+                          : multimoves.size() == 1 ? multimoves[multimoves.size() - 1]
+                          : 1;
+      int secondMultimove =  multimoves.size() >= 1 ? multimoves[multimoves.size() - 1]
+                           : 1;
+      multimoveCycle = 2 * firstMultimove - 1 + 2 * secondMultimove - 1;
+      multimoveCycleShift = 2 * firstMultimove - 1;
+
     return this;
 }
 
@@ -2226,6 +2392,49 @@ Variant* Variant::conclude() {
 
 template <bool DoCheck>
 void VariantMap::parse_istream(std::istream& file) {
+    auto parse_rank_value = [](const std::string& raw, int& out) {
+        std::stringstream ss(raw);
+        ss >> std::ws;
+        if (ss.peek() == EOF)
+            return false;
+        if (std::isdigit(ss.peek()))
+        {
+            int i;
+            ss >> i;
+            if (ss.fail())
+                return false;
+            out = i - 1;
+            return true;
+        }
+        char c;
+        ss >> c;
+        if (ss.fail())
+            return false;
+        out = std::tolower(c) - '1';
+        return true;
+    };
+    auto parse_file_value = [](const std::string& raw, int& out) {
+        std::stringstream ss(raw);
+        ss >> std::ws;
+        if (ss.peek() == EOF)
+            return false;
+        if (std::isdigit(ss.peek()))
+        {
+            int i;
+            ss >> i;
+            if (ss.fail())
+                return false;
+            out = i - 1;
+            return true;
+        }
+        char c;
+        ss >> c;
+        if (ss.fail())
+            return false;
+        out = std::tolower(c) - 'a';
+        return true;
+    };
+
     std::string variant, variant_template, key, value, input;
     while (file.peek() != '[' && std::getline(file, input)) {}
 
@@ -2248,7 +2457,19 @@ void VariantMap::parse_istream(std::istream& file) {
                 if (DoCheck && !input.empty() && input.find('=') == std::string::npos)
                     std::cerr << "Invalid syntax: '" << input << "'." << std::endl;
                 if (std::getline(std::getline(ss, key, '=') >> std::ws, value) && !key.empty())
+                {
+                    // Strip inline # comments from value
+                    auto commentPos = value.find('#');
+                    if (commentPos != std::string::npos)
+                        value.erase(commentPos);
+                    // Trim trailing whitespace
+                    auto lastNonSpace = value.find_last_not_of(" \t\r\n");
+                    if (lastNonSpace != std::string::npos)
+                        value.erase(lastNonSpace + 1);
+                    else
+                        value.clear();
                     attribs[key.erase(key.find_last_not_of(" ") + 1)] = value;
+                }
             }
         }
 
@@ -2259,10 +2480,30 @@ void VariantMap::parse_istream(std::istream& file) {
             std::cerr << "Variant template '" << variant_template << "' does not exist." << std::endl;
         else
         {
+            int cfgMaxRank = -1;
+            int cfgMaxFile = -1;
+            if (attribs.count("maxRank"))
+                parse_rank_value(attribs["maxRank"], cfgMaxRank);
+            if (attribs.count("maxFile"))
+                parse_file_value(attribs["maxFile"], cfgMaxFile);
+            if ((cfgMaxRank > 0 && cfgMaxRank > RANK_MAX) || (cfgMaxFile >= 0 && cfgMaxFile > FILE_MAX))
+            {
+                if constexpr (!DoCheck)
+                    std::cerr << "Variant '" << variant << "' exceeds build board limits (maxFile=" << int(FILE_MAX) + 1
+                              << ", maxRank=" << int(RANK_MAX) + 1 << "). Skipping." << std::endl;
+                continue;
+            }
+
             if (DoCheck)
                 std::cerr << "Parsing variant: " << variant << std::endl;
             Variant* v = !variant_template.empty() ? VariantParser<DoCheck>(attribs).parse((new Variant(*variants.find(variant_template)->second))->init())
                                                    : VariantParser<DoCheck>(attribs).parse();
+            if (!v)
+            {
+                if (DoCheck)
+                    std::cerr << "Variant '" << variant << "' has invalid configuration. Skipping." << std::endl;
+                continue;
+            }
             if (v->maxFile <= FILE_MAX && v->maxRank <= RANK_MAX)
             {
                 add(variant, v);
@@ -2272,7 +2513,12 @@ void VariantMap::parse_istream(std::istream& file) {
                     varsToErase.push_back(variant);
             }
             else
+            {
+                if constexpr (!DoCheck)
+                    std::cerr << "Variant '" << variant << "' exceeds build board limits (maxFile=" << int(FILE_MAX) + 1
+                              << ", maxRank=" << int(RANK_MAX) + 1 << "). Skipping." << std::endl;
                 delete v;
+            }
         }
     }
     // Clean up temporary variants

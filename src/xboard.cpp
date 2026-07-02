@@ -44,6 +44,52 @@ namespace XBoard {
 
   StateMachine* stateMachine = nullptr;
 
+  StateMachine::~StateMachine() {
+    join_ponder_worker();
+  }
+
+  void StateMachine::launch_ponder_worker() {
+
+    join_ponder_worker();
+
+    if (shuttingDown.load())
+        return;
+
+    std::lock_guard<std::mutex> lk(ponderMutex);
+    if (ponderMove == MOVE_NONE)
+        return;
+
+    ponderWorker.reset(new NativeThread(&StateMachine::ponder, this));
+  }
+
+  void StateMachine::join_ponder_worker() {
+
+    std::unique_ptr<NativeThread> worker;
+
+    {
+        std::lock_guard<std::mutex> lk(ponderMutex);
+        if (!ponderWorker)
+            return;
+        worker = std::move(ponderWorker);
+    }
+
+    worker->join();
+  }
+
+  void StateMachine::cancel_ponder_worker() {
+    ponderMove = MOVE_NONE;
+    join_ponder_worker();
+  }
+
+  void StateMachine::shutdown_ponder_worker() {
+    shuttingDown.store(true);
+    ponderMove = MOVE_NONE;
+    Threads.abort = true;
+    Threads.stop = true;
+    Threads.main()->wait_for_search_finished();
+    join_ponder_worker();
+  }
+
   // go() starts the search for game play, analysis, or perft.
 
   void StateMachine::go(Search::LimitsType searchLimits, bool ponder) {
@@ -57,10 +103,15 @@ namespace XBoard {
 
   void StateMachine::ponder() {
 
+    if (shuttingDown.load())
+        return;
+
     sync_cout << "Hint: " << UCI::move(pos, ponderMove) << sync_endl;
     ponderHighlight = highlight(UCI::square(pos, from_sq(ponderMove)));
     do_move(ponderMove);
     ponderMove = MOVE_NONE;
+    if (shuttingDown.load())
+        return;
     go(limits, true);
   }
 
@@ -146,6 +197,9 @@ namespace XBoard {
     // Generate color FEN
     int emptyCnt;
     std::ostringstream ss;
+    if (pos.variant()->commitGates) {
+        ss << pos.max_file() + 1 << "/";
+    }
     for (Rank r = pos.max_rank(); r >= RANK_1; --r)
     {
         for (File f = FILE_A; f <= pos.max_file(); ++f)
@@ -162,6 +216,9 @@ namespace XBoard {
 
         if (r > RANK_1)
             ss << '/';
+    }
+    if (pos.variant()->commitGates) {
+        ss << "/" << pos.max_file() + 1;
     }
     return ss.str();
   }

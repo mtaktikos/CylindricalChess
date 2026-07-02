@@ -21,6 +21,7 @@
 
 #include <string>
 #include <map>
+#include <vector>
 
 #include "types.h"
 #include "variant.h"
@@ -29,14 +30,51 @@ namespace Stockfish {
 
 enum MoveModality {MODALITY_QUIET, MODALITY_CAPTURE, MOVE_MODALITY_NB};
 
+// Double-move piece types (HaChu-style two-step moves)
+enum DoubleMoveType {
+  DM_NONE,
+  DM_LION,      // True Lion move: 2 king steps in any combination of directions
+  DM_WEREWOLF,  // Werewolf move: 2 king steps in same direction (linear double)
+};
+
+// Special distance value for dynamic slider length (Betza 'x' modifier)
+constexpr int DYNAMIC_SLIDER_LIMIT = -2;
+// Special distance value for ski/slip sliders (Betza 'j' modifier)
+constexpr int SKI_SLIDER_LIMIT = -3;
+// Special distance value for max-distance sliders (Betza 'z' modifier)
+constexpr int MAX_SLIDER_LIMIT = -4;
+
 /// PieceInfo struct stores information about the piece movements.
 
 struct PieceInfo {
+  enum RiderAugment : uint8_t {
+    AUGMENT_NONE = 0,
+    AUGMENT_DYNAMIC = 1 << 0,
+    AUGMENT_MAX = 1 << 1,
+    AUGMENT_CONTRA = 1 << 2
+  };
+
   std::string name = "";
   std::string betza = "";
   std::map<Direction, int> steps[2][MOVE_MODALITY_NB] = {};
+  std::vector<std::pair<int, int>> tupleSteps[2][MOVE_MODALITY_NB] = {};
   std::map<Direction, int> slider[2][MOVE_MODALITY_NB] = {};
   std::map<Direction, int> hopper[2][MOVE_MODALITY_NB] = {};
+  std::map<Direction, int> contraHopper[2][MOVE_MODALITY_NB] = {};
+  bool griffon[2][MOVE_MODALITY_NB] = {};
+  bool manticore[2][MOVE_MODALITY_NB] = {};
+  bool aanca[2][MOVE_MODALITY_NB] = {};
+  bool unicorn[2][MOVE_MODALITY_NB] = {};
+  uint8_t riderAugmentMask = AUGMENT_NONE;
+  bool friendlyJump = false;
+  bool hasInitialMoves = false; // true if any moves use the Betza 'i' (initial) modifier
+  DoubleMoveType doubleMoveType = DM_NONE; // HaChu-style two-step double-move capability
+
+  inline void add_rider_augment(RiderAugment augment) { riderAugmentMask |= augment; }
+  inline bool has_runtime_rider_augment() const { return riderAugmentMask != AUGMENT_NONE; }
+  inline bool has_dynamic_slider() const { return riderAugmentMask & AUGMENT_DYNAMIC; }
+  inline bool has_max_slider() const { return riderAugmentMask & AUGMENT_MAX; }
+  inline bool has_contra_hopper() const { return riderAugmentMask & AUGMENT_CONTRA; }
 };
 
 struct PieceMap : public std::map<PieceType, const PieceInfo*> {

@@ -16,6 +16,10 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <algorithm>
+#include <cctype>
+#include <iostream>
+#include <limits>
 #include <map>
 #include <string>
 #include <utility>
@@ -48,6 +52,7 @@ namespace {
       {'B', {std::make_pair(1, 1)}},
       {'Q', {std::make_pair(1, 0), std::make_pair(1, 1)}},
   };
+
   const std::string verticals = "fbvh";
   const std::string horizontals = "rlsh";
   // from_betza creates a piece by parsing Betza notation
@@ -56,40 +61,457 @@ namespace {
       PieceInfo* p = new PieceInfo();
       p->name = name;
       p->betza = betza;
+
+      // Convenience aliases for common fairy pieces in customPiece Betza fields.
+      auto alias_to_betza = [](const std::string& in) {
+          std::string key;
+          key.reserve(in.size());
+          for (char ch : in)
+          {
+              if (std::isalnum(static_cast<unsigned char>(ch)))
+                  key.push_back(std::tolower(static_cast<unsigned char>(ch)));
+          }
+          static const std::map<std::string, std::string> aliasMap = {
+              {"wazir", "W"},
+              {"fers", "F"},
+              {"ferz", "F"},
+              {"alfil", "A"},
+              {"dabbaba", "D"},
+              {"camel", "L"},
+              {"zebra", "J"},
+              {"nightrider", "NN"},
+              {"grasshopper", "gQ"},
+              {"mann", "K"},
+              {"amazon", "QN"},
+              {"chancellor", "RN"},
+              {"archbishop", "BN"},
+              {"marshall", "RN"},
+              {"empress", "RN"},
+              {"cardinal", "BN"},
+              {"princess", "BN"},
+              // H.G. Muller bent-slider notation
+              {"yafsf", "O"},
+              {"yafsw", "M"}
+          };
+          auto it = aliasMap.find(key);
+          return it == aliasMap.end() ? in : it->second;
+      };
+
+      // Parser sugar: m(AB) -> mAmB, c(RB) -> cRcB
+      auto expand_group_sugar = [&](const std::string& in) {
+          const std::string prefixChars = "mcpgnojzxiyfbrlvsh";
+          std::string out;
+          for (std::string::size_type i = 0; i < in.size(); ++i)
+          {
+              if (in[i] != '(')
+              {
+                  out.push_back(in[i]);
+                  continue;
+              }
+              auto close = in.find(')', i + 1);
+              if (close == std::string::npos)
+              {
+                  out.push_back(in[i]);
+                  continue;
+              }
+              std::string content = in.substr(i + 1, close - i - 1);
+              if (content.empty() || content.find(',') != std::string::npos)
+              {
+                  out.append(in, i, close - i + 1);
+                  i = close;
+                  continue;
+              }
+              bool groupAtomsOnly = true;
+              for (char gc : content)
+                  if (leaperAtoms.find(gc) == leaperAtoms.end() && riderAtoms.find(gc) == riderAtoms.end() && gc != 'U' && gc != 'O' && gc != 'M' && gc != 'E' && gc != 'I')
+                  {
+                      groupAtomsOnly = false;
+                      break;
+                  }
+              if (!groupAtomsOnly)
+              {
+                  out.append(in, i, close - i + 1);
+                  i = close;
+                  continue;
+              }
+
+              std::string prefix;
+              while (!out.empty() && prefixChars.find(out.back()) != std::string::npos)
+              {
+                  prefix.insert(prefix.begin(), out.back());
+                  out.pop_back();
+              }
+              if (prefix.empty())
+              {
+                  out.append(in, i, close - i + 1);
+                  i = close;
+                  continue;
+              }
+              for (char gc : content)
+              {
+                  out += prefix;
+                  out.push_back(gc);
+              }
+              i = close;
+          }
+          return out;
+      };
+
+      auto parse_positive_int = [](const std::string& s, int& out) {
+          if (s.empty())
+              return false;
+          long long v = 0;
+          for (char ch : s)
+          {
+              if (!std::isdigit(static_cast<unsigned char>(ch)))
+                  return false;
+              v = v * 10 + (ch - '0');
+              if (v > std::numeric_limits<int>::max())
+                  return false;
+          }
+          out = int(v);
+          return true;
+      };
+
+      // Apply bent-slider notation aliases from H.G. Muller's Betza system.
+      // yafsF = griffon (one diagonal step then rook-like slide), mapped to 'O'.
+      // yafsW = manticore (one orthogonal step then bishop-like slide), mapped to 'M'.
+      // These two patterns are disjoint so sequential replacement is safe.
+      auto apply_bentslider_aliases = [](std::string s) {
+          std::string::size_type pos;
+          while ((pos = s.find("yafsF")) != std::string::npos)
+              s.replace(pos, 5, "O");
+          while ((pos = s.find("yafsW")) != std::string::npos)
+              s.replace(pos, 5, "M");
+          return s;
+      };
+
+      const std::string expandedBetza = expand_group_sugar(apply_bentslider_aliases(alias_to_betza(betza)));
       std::vector<MoveModality> moveModalities = {};
       bool hopper = false;
+      bool contraHopper = false;
       bool rider = false;
       bool lame = false;
       bool initial = false;
+      bool dynamicDistance = false;
+      bool skiSlider = false;
+      bool maxDistance = false;
       int distance = 0;
+      bool standaloneH = false;
       std::vector<std::string> prelimDirections = {};
-      for (std::string::size_type i = 0; i < betza.size(); i++)
+
+      auto commit_atom = [&](const std::vector<std::pair<int, int>>& atoms, bool atomIsRider, std::string::size_type& i, char atomChar, bool atomIsTuple = false) {
+          // Check for rider / limited-distance rider suffix.
+          rider = atomIsRider;
+          if (i + 1 < expandedBetza.size())
+          {
+              if (expandedBetza[i + 1] == atomChar)
+              {
+                  rider = true;
+                  i++;
+              }
+              else if (std::isdigit(static_cast<unsigned char>(expandedBetza[i + 1])))
+              {
+                  rider = true;
+                  int parsedDistance = 0;
+                  std::string::size_type j = i + 1;
+                  while (j < expandedBetza.size() && std::isdigit(static_cast<unsigned char>(expandedBetza[j])))
+                  {
+                      parsedDistance = std::min(parsedDistance * 10 + (expandedBetza[j] - '0'), 255);
+                      j++;
+                  }
+                  distance = parsedDistance;
+                  i = j - 1;
+              }
+          }
+          if (!rider && lame)
+              distance = -1;
+          if (rider && skiSlider && !hopper && !lame && !dynamicDistance)
+              distance = SKI_SLIDER_LIMIT;
+          if (rider && maxDistance && !hopper && !lame && !dynamicDistance && !skiSlider)
+          {
+              distance = MAX_SLIDER_LIMIT;
+              p->add_rider_augment(PieceInfo::AUGMENT_MAX);
+          }
+          if (dynamicDistance && rider)
+          {
+              distance = DYNAMIC_SLIDER_LIMIT;
+              p->add_rider_augment(PieceInfo::AUGMENT_DYNAMIC);
+          }
+          if (moveModalities.size() == 0)
+          {
+              moveModalities.push_back(MODALITY_QUIET);
+              moveModalities.push_back(MODALITY_CAPTURE);
+          }
+          // Define moves for each atom and modality.
+          for (const auto& atom : atoms)
+          {
+              std::vector<std::string> directions = {};
+              // Split directions for orthogonal pieces (e.g. fsW for soldier).
+              for (auto s : prelimDirections)
+                  if (atoms.size() == 1 && atom.second == 0 && s[0] != s[1] && s != "hr" && s != "hl")
+                  {
+                      directions.push_back(std::string(2, s[0]));
+                      directions.push_back(std::string(2, s[1]));
+                  }
+                  else
+                      directions.push_back(s);
+
+              // Add moves to steps/slider/hopper tables.
+              for (auto modality : moveModalities)
+              {
+                  auto& v = hopper ? p->hopper[initial][modality]
+                           : contraHopper ? p->contraHopper[initial][modality]
+                           : rider ? p->slider[initial][modality]
+                                   : p->steps[initial][modality];
+                  auto& tupleV = p->tupleSteps[initial][modality];
+                  auto has_dir = [&](std::string s) {
+                    return std::find(directions.begin(), directions.end(), s) != directions.end();
+                  };
+                  auto add_step = [&](int dr, int df) {
+                      if (atomIsTuple && !hopper && !rider)
+                          tupleV.emplace_back(dr, df);
+                      else
+                          v[Direction(dr * FILE_NB + df)] = distance;
+                  };
+                  if (directions.size() == 0 || has_dir("ff") || has_dir("vv") || has_dir("rf") || has_dir("rv") || has_dir("fh") || has_dir("rh") || (has_dir("hr") && !standaloneH))
+                      add_step(atom.first, atom.second);
+                  if (directions.size() == 0 || has_dir("bb") || has_dir("vv") || has_dir("lb") || has_dir("lv") || has_dir("bh") || has_dir("lh") || (has_dir("hr") && !standaloneH))
+                      add_step(-atom.first, -atom.second);
+                  if (directions.size() == 0 || has_dir("rr") || has_dir("ss") || has_dir("br") || has_dir("bs") || has_dir("bh") || has_dir("rh") || has_dir("hr"))
+                      add_step(-atom.second, atom.first);
+                  if (directions.size() == 0 || has_dir("ll") || has_dir("ss") || has_dir("fl") || has_dir("fs") || has_dir("fh") || has_dir("lh") || has_dir("hr"))
+                      add_step(atom.second, -atom.first);
+                  if (directions.size() == 0 || has_dir("rr") || has_dir("ss") || has_dir("fr") || has_dir("fs") || has_dir("fh") || has_dir("rh") || has_dir("hl"))
+                      add_step(atom.second, atom.first);
+                  if (directions.size() == 0 || has_dir("ll") || has_dir("ss") || has_dir("bl") || has_dir("bs") || has_dir("bh") || has_dir("lh") || has_dir("hl"))
+                      add_step(-atom.second, -atom.first);
+                  if (directions.size() == 0 || has_dir("bb") || has_dir("vv") || has_dir("rb") || has_dir("rv") || has_dir("bh") || has_dir("rh") || (has_dir("hl") && !standaloneH))
+                      add_step(-atom.first, atom.second);
+                  if (directions.size() == 0 || has_dir("ff") || has_dir("vv") || has_dir("lf") || has_dir("lv") || has_dir("fh") || has_dir("lh") || (has_dir("hl") && !standaloneH))
+                      add_step(atom.first, -atom.second);
+              }
+          }
+          // Reset per-atom parser state.
+          moveModalities.clear();
+          prelimDirections.clear();
+          hopper = false;
+          contraHopper = false;
+          rider = false;
+          lame = false;
+          initial = false;
+          dynamicDistance = false;
+          skiSlider = false;
+          maxDistance = false;
+          standaloneH = false;
+          distance = 0;
+      };
+
+      auto commit_griffon = [&]() {
+          // Keep first implementation strict: unqualified O only.
+          if (!prelimDirections.empty() || hopper || contraHopper || lame || dynamicDistance || rider)
+          {
+              moveModalities.clear();
+              prelimDirections.clear();
+              hopper = false;
+              contraHopper = false;
+              rider = false;
+              lame = false;
+              initial = false;
+              dynamicDistance = false;
+              skiSlider = false;
+              maxDistance = false;
+              standaloneH = false;
+              distance = 0;
+              return;
+          }
+          if (moveModalities.size() == 0)
+          {
+              moveModalities.push_back(MODALITY_QUIET);
+              moveModalities.push_back(MODALITY_CAPTURE);
+          }
+          for (auto modality : moveModalities)
+              p->griffon[initial][modality] = true;
+          moveModalities.clear();
+          prelimDirections.clear();
+          hopper = false;
+          contraHopper = false;
+          rider = false;
+          lame = false;
+          initial = false;
+          dynamicDistance = false;
+          skiSlider = false;
+          maxDistance = false;
+          standaloneH = false;
+          distance = 0;
+      };
+
+      auto commit_manticore = [&]() {
+          // Keep first implementation strict: unqualified M only.
+          if (!prelimDirections.empty() || hopper || contraHopper || lame || dynamicDistance || rider)
+          {
+              moveModalities.clear();
+              prelimDirections.clear();
+              hopper = false;
+              contraHopper = false;
+              rider = false;
+              lame = false;
+              initial = false;
+              dynamicDistance = false;
+              skiSlider = false;
+              maxDistance = false;
+              standaloneH = false;
+              distance = 0;
+              return;
+          }
+          if (moveModalities.size() == 0)
+          {
+              moveModalities.push_back(MODALITY_QUIET);
+              moveModalities.push_back(MODALITY_CAPTURE);
+          }
+          for (auto modality : moveModalities)
+              p->manticore[initial][modality] = true;
+          moveModalities.clear();
+          prelimDirections.clear();
+          hopper = false;
+          contraHopper = false;
+          rider = false;
+          lame = false;
+          initial = false;
+          dynamicDistance = false;
+          skiSlider = false;
+          maxDistance = false;
+          standaloneH = false;
+          distance = 0;
+      };
+
+      auto commit_aanca = [&]() {
+          // Aanca/Gryphon (Betza 'E'): one diagonal step then vertical slide (both
+          // directions) + outward horizontal slide from the step square.
+          // Keep strict: unqualified E only.
+          if (!prelimDirections.empty() || hopper || contraHopper || lame || dynamicDistance || rider)
+          {
+              moveModalities.clear();
+              prelimDirections.clear();
+              hopper = false;
+              contraHopper = false;
+              rider = false;
+              lame = false;
+              initial = false;
+              dynamicDistance = false;
+              skiSlider = false;
+              maxDistance = false;
+              standaloneH = false;
+              distance = 0;
+              return;
+          }
+          if (moveModalities.size() == 0)
+          {
+              moveModalities.push_back(MODALITY_QUIET);
+              moveModalities.push_back(MODALITY_CAPTURE);
+          }
+          for (auto modality : moveModalities)
+              p->aanca[initial][modality] = true;
+          moveModalities.clear();
+          prelimDirections.clear();
+          hopper = false;
+          contraHopper = false;
+          rider = false;
+          lame = false;
+          initial = false;
+          dynamicDistance = false;
+          skiSlider = false;
+          maxDistance = false;
+          standaloneH = false;
+          distance = 0;
+      };
+
+      auto commit_unicorn = [&]() {
+          // Unicorn bent-slider (Betza 'I'): one knight leap then diagonal slide
+          // outward. Pairs with 'N' to produce full unicorn moves (N provides the
+          // knight-landing squares; I provides the diagonal continuation slides).
+          // Keep strict: unqualified I only.
+          if (!prelimDirections.empty() || hopper || contraHopper || lame || dynamicDistance || rider)
+          {
+              moveModalities.clear();
+              prelimDirections.clear();
+              hopper = false;
+              contraHopper = false;
+              rider = false;
+              lame = false;
+              initial = false;
+              dynamicDistance = false;
+              skiSlider = false;
+              maxDistance = false;
+              standaloneH = false;
+              distance = 0;
+              return;
+          }
+          if (moveModalities.size() == 0)
+          {
+              moveModalities.push_back(MODALITY_QUIET);
+              moveModalities.push_back(MODALITY_CAPTURE);
+          }
+          for (auto modality : moveModalities)
+              p->unicorn[initial][modality] = true;
+          moveModalities.clear();
+          prelimDirections.clear();
+          hopper = false;
+          contraHopper = false;
+          rider = false;
+          lame = false;
+          initial = false;
+          dynamicDistance = false;
+          skiSlider = false;
+          maxDistance = false;
+          standaloneH = false;
+          distance = 0;
+      };
+
+
+      for (std::string::size_type i = 0; i < expandedBetza.size(); i++)
       {
-          char c = betza[i];
+          char c = expandedBetza[i];
           // Modality
           if (c == 'm' || c == 'c')
               moveModalities.push_back(c == 'c' ? MODALITY_CAPTURE : MODALITY_QUIET);
-          // Hopper
+          // Hopper (grasshopper when g)
           else if (c == 'p' || c == 'g')
           {
               hopper = true;
-              // Grasshopper
               if (c == 'g')
                   distance = 1;
+          }
+          // Contra-hopper
+          else if (c == 'o')
+          {
+              contraHopper = true;
+              p->add_rider_augment(PieceInfo::AUGMENT_CONTRA);
           }
           // Lame leaper
           else if (c == 'n')
               lame = true;
+          // Dynamic distance slider
+          else if (c == 'x')
+              dynamicDistance = true;
+          // Ski/slip slider modifier (e.g. jR, jB, jQ)
+          else if (c == 'j')
+              skiSlider = true;
+          // Max-distance slider modifier (e.g. zR, zB, zQ)
+          else if (c == 'z')
+              maxDistance = true;
           // Initial move
           else if (c == 'i')
               initial = true;
+          // Slider ignores friendly pieces
+          else if (c == 'y')
+              p->friendlyJump = true;
           // Directional modifiers
           else if (verticals.find(c) != std::string::npos || horizontals.find(c) != std::string::npos)
           {
-              if (i + 1 < betza.size())
+              if (i + 1 < expandedBetza.size())
               {
-                  char c2 = betza[i+1];
-                  // Can modifiers be combined?
+                  char c2 = expandedBetza[i + 1];
                   if (   c2 == c
                       || (verticals.find(c) != std::string::npos && horizontals.find(c2) != std::string::npos)
                       || (horizontals.find(c) != std::string::npos && verticals.find(c2) != std::string::npos))
@@ -99,83 +521,113 @@ namespace {
                       continue;
                   }
               }
-              prelimDirections.push_back(std::string(2, c));
+              if (c == 'h')
+              {
+                  prelimDirections.push_back("hr");
+                  prelimDirections.push_back("hl");
+                  standaloneH = true;
+              }
+              else
+                  prelimDirections.push_back(std::string(2, c));
           }
-          // Move atom
+          // Standard Betza move atom
           else if (leaperAtoms.find(c) != leaperAtoms.end() || riderAtoms.find(c) != riderAtoms.end())
           {
               const auto& atoms = riderAtoms.find(c) != riderAtoms.end() ? riderAtoms.find(c)->second
                                                                          : leaperAtoms.find(c)->second;
-              // Check for rider
-              if (riderAtoms.find(c) != riderAtoms.end())
-                  rider = true;
-              if (i + 1 < betza.size() && (isdigit(betza[i+1]) || betza[i+1] == c))
+              commit_atom(atoms, riderAtoms.find(c) != riderAtoms.end(), i, c);
+          }
+          // Universal leaper: U can target any square on board.
+          else if (c == 'U')
+          {
+              std::vector<std::pair<int, int>> universalAtoms;
+              universalAtoms.reserve((int(RANK_MAX) + 1) * (int(FILE_MAX) + 1) - 1);
+              for (int dr = 0; dr <= int(RANK_MAX); ++dr)
+                  for (int df = 0; df <= int(FILE_MAX); ++df)
+                      if (dr != 0 || df != 0)
+                          universalAtoms.emplace_back(dr, df);
+              commit_atom(universalAtoms, false, i, c);
+          }
+          // Griffon bent slider (one orthogonal step, then slide perpendicular)
+          else if (c == 'O')
+              commit_griffon();
+          // Manticore bent slider (one diagonal step, then rook-like slide)
+          else if (c == 'M')
+              commit_manticore();
+          // Aanca bent slider (one diagonal step, then V-slide + outward H-slide)
+          else if (c == 'E')
+              commit_aanca();
+          // Unicorn bent slider (one knight leap, then diagonal continuation)
+          else if (c == 'I')
+              commit_unicorn();
+          // Tuple leaper atom: (x,y)
+          else if (c == '(')
+          {
+              // Tuple atoms are only supported as explicit leapers. Reject
+              // tuple+hoppers/riders to avoid Direction-based wrap artifacts.
+              if (hopper || contraHopper || rider || lame || dynamicDistance)
               {
-                  rider = true;
-                  // limited distance riders
-                  if (isdigit(betza[i+1]))
-                      distance = betza[i+1] - '0';
-                  i++;
+                  std::cerr << "Unsupported Betza tuple modifier combination in '" << betza
+                            << "': tuple atoms only support explicit leapers. Ignoring tuple atom." << std::endl;
+                  moveModalities.clear();
+                  prelimDirections.clear();
+                  hopper = false;
+                  contraHopper = false;
+                  rider = false;
+                  lame = false;
+                  initial = false;
+                  dynamicDistance = false;
+                  skiSlider = false;
+                  maxDistance = false;
+                  standaloneH = false;
+                  distance = 0;
+                  auto closeUnsupported = expandedBetza.find(')', i + 1);
+                  if (closeUnsupported != std::string::npos)
+                      i = closeUnsupported;
+                  continue;
               }
-              if (!rider && lame)
-                  distance = -1;
-              // No modality qualifier means m+c
-              if (moveModalities.size() == 0)
+              auto close = expandedBetza.find(')', i + 1);
+              if (close == std::string::npos)
+                  continue;
+              auto comma = expandedBetza.find(',', i + 1);
+              if (comma == std::string::npos || comma > close)
               {
-                  moveModalities.push_back(MODALITY_QUIET);
-                  moveModalities.push_back(MODALITY_CAPTURE);
+                  i = close;
+                  continue;
               }
-              // Define moves
-              for (const auto& atom : atoms)
+              int dx = 0, dy = 0;
+              if (!parse_positive_int(expandedBetza.substr(i + 1, comma - i - 1), dx)
+                  || !parse_positive_int(expandedBetza.substr(comma + 1, close - comma - 1), dy))
               {
-                  std::vector<std::string> directions = {};
-                  // Split directions for orthogonal pieces
-                  // This is required e.g. to correctly interpret fsW for soldiers
-                  for (auto s : prelimDirections)
-                      if (atoms.size() == 1 && atom.second == 0 && s[0] != s[1])
-                      {
-                          directions.push_back(std::string(2, s[0]));
-                          directions.push_back(std::string(2, s[1]));
-                      }
-                      else
-                          directions.push_back(s);
-                  // Add moves
-                  for (auto modality : moveModalities)
-                  {
-                      auto& v = hopper ? p->hopper[initial][modality]
-                               : rider ? p->slider[initial][modality]
-                                       : p->steps[initial][modality];
-                      auto has_dir = [&](std::string s) {
-                        return std::find(directions.begin(), directions.end(), s) != directions.end();
-                      };
-                      if (directions.size() == 0 || has_dir("ff") || has_dir("vv") || has_dir("rf") || has_dir("rv") || has_dir("fh") || has_dir("rh") || has_dir("hr"))
-                          v[Direction(atom.first * FILE_NB + atom.second)] = distance;
-                      if (directions.size() == 0 || has_dir("bb") || has_dir("vv") || has_dir("lb") || has_dir("lv") || has_dir("bh") || has_dir("lh") || has_dir("hr"))
-                          v[Direction(-atom.first * FILE_NB - atom.second)] = distance;
-                      if (directions.size() == 0 || has_dir("rr") || has_dir("ss") || has_dir("br") || has_dir("bs") || has_dir("bh") || has_dir("rh") || has_dir("hr"))
-                          v[Direction(-atom.second * FILE_NB + atom.first)] = distance;
-                      if (directions.size() == 0 || has_dir("ll") || has_dir("ss") || has_dir("fl") || has_dir("fs") || has_dir("fh") || has_dir("lh") || has_dir("hr"))
-                          v[Direction(atom.second * FILE_NB - atom.first)] = distance;
-                      if (directions.size() == 0 || has_dir("rr") || has_dir("ss") || has_dir("fr") || has_dir("fs") || has_dir("fh") || has_dir("rh") || has_dir("hl"))
-                          v[Direction(atom.second * FILE_NB + atom.first)] = distance;
-                      if (directions.size() == 0 || has_dir("ll") || has_dir("ss") || has_dir("bl") || has_dir("bs") || has_dir("bh") || has_dir("lh") || has_dir("hl"))
-                          v[Direction(-atom.second * FILE_NB - atom.first)] = distance;
-                      if (directions.size() == 0 || has_dir("bb") || has_dir("vv") || has_dir("rb") || has_dir("rv") || has_dir("bh") || has_dir("rh") || has_dir("hl"))
-                          v[Direction(-atom.first * FILE_NB + atom.second)] = distance;
-                      if (directions.size() == 0 || has_dir("ff") || has_dir("vv") || has_dir("lf") || has_dir("lv") || has_dir("fh") || has_dir("lh") || has_dir("hl"))
-                          v[Direction(atom.first * FILE_NB - atom.second)] = distance;
-                  }
+                  i = close;
+                  continue;
               }
-              // Reset state
-              moveModalities.clear();
-              prelimDirections.clear();
-              hopper = false;
-              rider = false;
-              lame = false;
-              initial = false;
-              distance = 0;
+              // Reject meaningless/oversized tuples to avoid overflow and wrap artefacts.
+              if ((dx == 0 && dy == 0) || dx > int(FILE_MAX) || dy > int(RANK_MAX))
+              {
+                  i = close;
+                  continue;
+              }
+              std::vector<std::pair<int, int>> tupleAtom = { std::make_pair(dx, dy) };
+              i = close;
+              commit_atom(tupleAtom, false, i, ')', true);
           }
       }
+      // Set flag if any moves are stored in the initial (index 1) tables.
+      p->hasInitialMoves = !p->steps[1][MODALITY_QUIET].empty()
+                        || !p->steps[1][MODALITY_CAPTURE].empty()
+                        || !p->tupleSteps[1][MODALITY_QUIET].empty()
+                        || !p->tupleSteps[1][MODALITY_CAPTURE].empty()
+                        || !p->slider[1][MODALITY_QUIET].empty()
+                        || !p->slider[1][MODALITY_CAPTURE].empty()
+                        || !p->hopper[1][MODALITY_QUIET].empty()
+                        || !p->hopper[1][MODALITY_CAPTURE].empty()
+                        || !p->contraHopper[1][MODALITY_QUIET].empty()
+                        || !p->contraHopper[1][MODALITY_CAPTURE].empty()
+                        || p->griffon[1][MODALITY_QUIET]   || p->griffon[1][MODALITY_CAPTURE]
+                        || p->manticore[1][MODALITY_QUIET] || p->manticore[1][MODALITY_CAPTURE]
+                        || p->aanca[1][MODALITY_QUIET]     || p->aanca[1][MODALITY_CAPTURE]
+                        || p->unicorn[1][MODALITY_QUIET]   || p->unicorn[1][MODALITY_CAPTURE];
       return p;
   }
   // Special multi-leg betza description for Janggi elephant
@@ -228,6 +680,18 @@ void PieceMap::init(const Variant* v) {
   // Add custom pieces
   for (PieceType pt = CUSTOM_PIECES; pt <= CUSTOM_PIECES_END; ++pt)
       add(pt, from_betza(v != nullptr ? v->customPiece[pt - CUSTOM_PIECES] : "", ""));
+
+  // Set double-move types based on variant configuration
+  if (v != nullptr)
+  {
+      for (auto& [pt, pi] : *this)
+      {
+          if (v->doubleLionTypes & pt)
+              const_cast<PieceInfo*>(pi)->doubleMoveType = DM_LION;
+          else if (v->doubleWerewolfTypes & pt)
+              const_cast<PieceInfo*>(pi)->doubleMoveType = DM_WEREWOLF;
+      }
+  }
 }
 
 void PieceMap::add(PieceType pt, const PieceInfo* p) {

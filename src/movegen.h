@@ -20,6 +20,7 @@
 #define MOVEGEN_H_INCLUDED
 
 #include <algorithm>
+#include <cassert>
 
 #include "types.h"
 
@@ -28,11 +29,19 @@ namespace Stockfish {
 class Position;
 
 enum GenType {
+  /// yjf2002ghty: I think it's better to add some explanations here so that new developers can understand what these means, as some of the terms cannot be found in chessprogramming wiki. I'm not sure if my explanations are correct. If there are anything wrong, please point it out.
+
+  //Moves that a piece is removed from the board as part of the completion of the move
   CAPTURES,
+  //Moves which do not alter material, thus no captures nor promotions
   QUIETS,
+  //Moves which do not alter material, and give check to opponent
   QUIET_CHECKS,
+  //Check evasion moves, including interpositions, attacker capture and king withdrawal
   EVASIONS,
+  //Moves that are not check evasion moves
   NON_EVASIONS,
+  //Moves that are legal
   LEGAL
 };
 
@@ -55,7 +64,11 @@ inline bool operator<(const ExtMove& f, const ExtMove& s) {
 template<GenType>
 ExtMove* generate(const Position& pos, ExtMove* moveList);
 
+// Some variant-specific generators (potions, exchanges) can exceed MAX_MOVES.
+// Keep a larger shared capacity so move lists stay in-bounds.
+constexpr int MOVEGEN_OVERFLOW_CAPACITY = MAX_MOVES * 4;
 constexpr size_t moveListSize = sizeof(ExtMove) * MAX_MOVES;
+constexpr size_t moveListSizeOverflow = sizeof(ExtMove) * MOVEGEN_OVERFLOW_CAPACITY;
 
 /// The MoveList struct is a simple wrapper around generate(). It sometimes comes
 /// in handy to use this class instead of the low level generate() function.
@@ -66,13 +79,14 @@ struct MoveList {
 #ifdef USE_HEAP_INSTEAD_OF_STACK_FOR_MOVE_LIST
     explicit MoveList(const Position& pos)
     {
-        this->moveList = (ExtMove*)malloc(moveListSize);
+        this->moveList = (ExtMove*)malloc(moveListSizeOverflow);
         if (this->moveList == 0)
         {
             printf("Error: Failed to allocate memory in heap.");
             exit(1);
         }
         this->last = generate<T>(pos, this->moveList);
+        assert(this->last - this->moveList <= MOVEGEN_OVERFLOW_CAPACITY);
     }
 
     ~MoveList()
@@ -82,7 +96,7 @@ struct MoveList {
 #else
     explicit MoveList(const Position& pos) : last(generate<T>(pos, moveList))
     {
-        ;
+        assert(last - moveList <= MOVEGEN_OVERFLOW_CAPACITY);
     }
 #endif
   
@@ -98,7 +112,7 @@ private:
 #ifdef USE_HEAP_INSTEAD_OF_STACK_FOR_MOVE_LIST
     ExtMove* moveList = 0;
 #else
-    ExtMove moveList[MAX_MOVES];
+    ExtMove moveList[MOVEGEN_OVERFLOW_CAPACITY];
 #endif
 };
 

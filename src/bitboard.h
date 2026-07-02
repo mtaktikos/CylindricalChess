@@ -35,101 +35,88 @@ bool probe(Square wksq, Square wpsq, Square bksq, Color us);
 namespace Bitboards {
 
 void init_pieces();
+void init_magics(File maxFile, Rank maxRank);
 void init();
 std::string pretty(Bitboard b);
 
 } // namespace Stockfish::Bitboards
 
-constexpr Bitboard square_bit(int s) {
-  return s >= 0 && s < SQUARE_NB ? Bitboard(1) << s : Bitboard(0);
-}
-
-constexpr Bitboard make_board_mask(int files, int ranks) {
+constexpr Bitboard all_squares_bb() {
   Bitboard b = 0;
-  for (int r = 0; r < ranks; ++r)
-      for (int f = 0; f < files; ++f)
-          b = b | square_bit(r * files + f);
+  for (int i = 0; i < SQUARE_NB; ++i)
+      b = b | (Bitboard(1) << i);
   return b;
 }
 
-constexpr Bitboard make_file_mask(int file) {
-  Bitboard b = 0;
-  for (int r = 0; r < RANK_NB; ++r)
-      b = b | square_bit(r * FILE_NB + file);
-  return b;
-}
-
-constexpr Bitboard make_dark_squares() {
+constexpr Bitboard dark_squares_bb() {
   Bitboard b = 0;
   for (int r = 0; r < RANK_NB; ++r)
       for (int f = 0; f < FILE_NB; ++f)
           if ((r + f) & 1)
-              b = b | square_bit(r * FILE_NB + f);
+              b = b | (Bitboard(1) << (r * FILE_NB + f));
   return b;
 }
 
-constexpr Bitboard AllSquares = make_board_mask(FILE_NB, RANK_NB);
-constexpr Bitboard DarkSquares = make_dark_squares();
-
-constexpr Bitboard FileABB = make_file_mask(FILE_A);
-constexpr Bitboard FileBBB = make_file_mask(FILE_B);
-constexpr Bitboard FileCBB = make_file_mask(FILE_C);
-constexpr Bitboard FileDBB = make_file_mask(FILE_D);
-constexpr Bitboard FileEBB = make_file_mask(FILE_E);
-constexpr Bitboard FileFBB = make_file_mask(FILE_F);
-constexpr Bitboard FileGBB = make_file_mask(FILE_G);
-constexpr Bitboard FileHBB = make_file_mask(FILE_H);
-constexpr Bitboard FileIBB = make_file_mask(FILE_I);
-constexpr Bitboard FileJBB = make_file_mask(FILE_J);
-constexpr Bitboard FileKBB = make_file_mask(FILE_K);
-constexpr Bitboard FileLBB = make_file_mask(FILE_L);
-constexpr Bitboard FileMBB = make_file_mask(FILE_M);
-constexpr Bitboard FileNBB = make_file_mask(FILE_N);
-constexpr Bitboard FileOBB = make_file_mask(FILE_O);
-constexpr Bitboard FilePBB = make_file_mask(FILE_P);
-
-constexpr Bitboard make_rank_mask(int rank) {
+constexpr Bitboard file_a_bb() {
   Bitboard b = 0;
-  for (int f = 0; f < FILE_NB; ++f)
-      b = b | square_bit(rank * FILE_NB + f);
+  for (int r = 0; r < RANK_NB; ++r)
+      b = b | (Bitboard(1) << (r * FILE_NB));
   return b;
 }
 
-constexpr Bitboard Rank1BB = make_rank_mask(RANK_1);
-constexpr Bitboard Rank2BB = make_rank_mask(RANK_2);
-constexpr Bitboard Rank3BB = make_rank_mask(RANK_3);
-constexpr Bitboard Rank4BB = make_rank_mask(RANK_4);
-constexpr Bitboard Rank5BB = make_rank_mask(RANK_5);
-constexpr Bitboard Rank6BB = make_rank_mask(RANK_6);
-constexpr Bitboard Rank7BB = make_rank_mask(RANK_7);
-constexpr Bitboard Rank8BB = make_rank_mask(RANK_8);
-constexpr Bitboard Rank9BB = make_rank_mask(RANK_9);
-constexpr Bitboard Rank10BB = make_rank_mask(RANK_10);
-constexpr Bitboard Rank11BB = make_rank_mask(RANK_11);
-constexpr Bitboard Rank12BB = make_rank_mask(RANK_12);
-constexpr Bitboard Rank13BB = make_rank_mask(RANK_13);
-constexpr Bitboard Rank14BB = make_rank_mask(RANK_14);
-constexpr Bitboard Rank15BB = make_rank_mask(RANK_15);
-constexpr Bitboard Rank16BB = make_rank_mask(RANK_16);
+constexpr Bitboard AllSquares = all_squares_bb();
+constexpr Bitboard DarkSquares = dark_squares_bb();
+constexpr Bitboard FileABB = file_a_bb();
+constexpr Bitboard FileBBB = FileABB << 1;
+constexpr Bitboard FileCBB = FileABB << 2;
+constexpr Bitboard FileDBB = FileABB << 3;
+constexpr Bitboard FileEBB = FileABB << 4;
+constexpr Bitboard FileFBB = FileABB << 5;
+constexpr Bitboard FileGBB = FileABB << 6;
+constexpr Bitboard FileHBB = FileABB << 7;
+#ifdef LARGEBOARDS
+constexpr Bitboard FileIBB = FileABB << 8;
+constexpr Bitboard FileJBB = FileABB << 9;
+constexpr Bitboard FileKBB = FileABB << 10;
+constexpr Bitboard FileLBB = FileABB << 11;
+#ifdef VERY_LARGE_BOARDS
+constexpr Bitboard FileMBB = FileABB << 12;
+constexpr Bitboard FileNBB = FileABB << 13;
+constexpr Bitboard FileOBB = FileABB << 14;
+constexpr Bitboard FilePBB = FileABB << 15;
+#endif
+#endif
+
+constexpr Bitboard Rank1BB = (Bitboard(1) << FILE_NB) - Bitboard(1);
+constexpr Bitboard Rank2BB = Rank1BB << (FILE_NB * 1);
+constexpr Bitboard Rank3BB = Rank1BB << (FILE_NB * 2);
+constexpr Bitboard Rank4BB = Rank1BB << (FILE_NB * 3);
+constexpr Bitboard Rank5BB = Rank1BB << (FILE_NB * 4);
+constexpr Bitboard Rank6BB = Rank1BB << (FILE_NB * 5);
+constexpr Bitboard Rank7BB = Rank1BB << (FILE_NB * 6);
+constexpr Bitboard Rank8BB = Rank1BB << (FILE_NB * 7);
+#ifdef LARGEBOARDS
+constexpr Bitboard Rank9BB = Rank1BB << (FILE_NB * 8);
+constexpr Bitboard Rank10BB = Rank1BB << (FILE_NB * 9);
+#ifdef VERY_LARGE_BOARDS
+constexpr Bitboard Rank11BB = Rank1BB << (FILE_NB * 10);
+constexpr Bitboard Rank12BB = Rank1BB << (FILE_NB * 11);
+constexpr Bitboard Rank13BB = Rank1BB << (FILE_NB * 12);
+constexpr Bitboard Rank14BB = Rank1BB << (FILE_NB * 13);
+constexpr Bitboard Rank15BB = Rank1BB << (FILE_NB * 14);
+constexpr Bitboard Rank16BB = Rank1BB << (FILE_NB * 15);
+#endif
+#endif
 
 constexpr Bitboard QueenSide   = FileABB | FileBBB | FileCBB | FileDBB;
 constexpr Bitboard CenterFiles = FileCBB | FileDBB | FileEBB | FileFBB;
 constexpr Bitboard KingSide    = FileEBB | FileFBB | FileGBB | FileHBB;
 constexpr Bitboard Center      = (FileDBB | FileEBB) & (Rank4BB | Rank5BB);
 
-constexpr Bitboard make_king_flank(File f) {
-  return f == FILE_A ? QueenSide ^ FileDBB
-       : f <= FILE_C ? QueenSide
-       : f <= FILE_E ? CenterFiles
-       : f <= FILE_H ? KingSide
-                     : KingSide ^ FileEBB;
-}
-
-constexpr Bitboard KingFlank[16] = {
-  make_king_flank(FILE_A), make_king_flank(FILE_B), make_king_flank(FILE_C), make_king_flank(FILE_D),
-  make_king_flank(FILE_E), make_king_flank(FILE_F), make_king_flank(FILE_G), make_king_flank(FILE_H),
-  make_king_flank(FILE_I), make_king_flank(FILE_J), make_king_flank(FILE_K), make_king_flank(FILE_L),
-  make_king_flank(FILE_M), make_king_flank(FILE_N), make_king_flank(FILE_O), make_king_flank(FILE_P)
+constexpr Bitboard KingFlank[FILE_NB] = {
+  QueenSide ^ FileDBB, QueenSide, QueenSide,
+  CenterFiles, CenterFiles,
+  KingSide, KingSide, KingSide ^ FileEBB
 };
 
 extern uint8_t PopCnt16[1 << 16];
@@ -142,18 +129,12 @@ extern Bitboard PseudoAttacks[COLOR_NB][PIECE_TYPE_NB][SQUARE_NB];
 extern Bitboard PseudoMoves[2][COLOR_NB][PIECE_TYPE_NB][SQUARE_NB];
 extern Bitboard LeaperAttacks[COLOR_NB][PIECE_TYPE_NB][SQUARE_NB];
 extern Bitboard LeaperMoves[2][COLOR_NB][PIECE_TYPE_NB][SQUARE_NB];
-extern Bitboard SquareBB[SQUARE_NB];
-extern Bitboard LionLocalMask[SQUARE_NB];
-extern uint64_t LionValidPathMask[SQUARE_NB];
-extern uint32_t LionPathLocalMask[SQUARE_NB][64];
-extern Square LionVia[SQUARE_NB][64];
-extern Square LionTo[SQUARE_NB][64];
 extern Bitboard BoardSizeBB[FILE_NB][RANK_NB];
 extern RiderType AttackRiderTypes[PIECE_TYPE_NB];
 extern RiderType MoveRiderTypes[2][PIECE_TYPE_NB];
 
-#if defined(LARGEBOARDS) || defined(BITBOARD_256)
-int popcount(Bitboard b); // required for multiword pext
+#ifdef LARGEBOARDS
+int popcount(Bitboard b); // required for 128 bit pext
 #endif
 
 /// Magic holds all magic bitboards relevant data for a single square
@@ -169,10 +150,7 @@ struct Magic {
     if (HasPext)
         return unsigned(pext(occupied, mask));
 
-#ifdef BITBOARD_256
-    assert(false);
-    return 0;
-#elif defined(LARGEBOARDS)
+#ifdef LARGEBOARDS
     return unsigned(((occupied & mask) * magic) >> shift);
 #else
     if (Is64Bit)
@@ -190,9 +168,7 @@ extern Magic RookMagicsV[SQUARE_NB];
 extern Magic BishopMagics[SQUARE_NB];
 extern Magic CannonMagicsH[SQUARE_NB];
 extern Magic CannonMagicsV[SQUARE_NB];
-extern Magic LameDabbabaMagics[SQUARE_NB];
 extern Magic HorseMagics[SQUARE_NB];
-extern Magic ElephantMagics[SQUARE_NB];
 extern Magic JanggiElephantMagics[SQUARE_NB];
 extern Magic CannonDiagMagics[SQUARE_NB];
 extern Magic NightriderMagics[SQUARE_NB];
@@ -361,14 +337,258 @@ inline Bitboard between_bb(Square s1, Square s2) {
   return BetweenBB[s1][s2];
 }
 
+inline Bitboard nightrider_between_bb(Square s1, Square s2) {
+  int df = int(file_of(s2)) - int(file_of(s1));
+  int dr = int(rank_of(s2)) - int(rank_of(s1));
+
+  auto make_path = [&](int stepF, int stepR) {
+      if ((stepF == 0) || (stepR == 0))
+          return Bitboard(0);
+      if (df % stepF || dr % stepR)
+          return Bitboard(0);
+      int nF = df / stepF;
+      int nR = dr / stepR;
+      if (nF != nR || nF <= 0)
+          return Bitboard(0);
+      int n = nF;
+      Bitboard b = 0;
+      int f = int(file_of(s1));
+      int r = int(rank_of(s1));
+      for (int i = 1; i <= n; ++i)
+      {
+          f += stepF;
+          r += stepR;
+          if (f < int(FILE_A) || f > int(FILE_MAX) || r < int(RANK_1) || r > int(RANK_MAX))
+              return Bitboard(0);
+          b |= make_square(File(f), Rank(r));
+      }
+      return b;
+  };
+
+  // Nightrider rays are repeated knight vectors.
+  static constexpr int StepFile[8] = { 1, 2, 2, 1, -1, -2, -2, -1 };
+  static constexpr int StepRank[8] = { 2, 1, -1, -2, -2, -1, 1, 2 };
+  for (int i = 0; i < 8; ++i)
+  {
+      Bitboard path = make_path(StepFile[i], StepRank[i]);
+      if (path)
+          return path;
+  }
+
+  return Bitboard(0);
+}
+
+inline Bitboard fixed_step_between_bb(Square s1, Square s2, int stepF, int stepR) {
+  int df = int(file_of(s2)) - int(file_of(s1));
+  int dr = int(rank_of(s2)) - int(rank_of(s1));
+
+  auto make_path = [&](int sf, int sr) {
+      if (sf == 0 && sr == 0)
+          return Bitboard(0);
+      if ((sf == 0 && df != 0) || (sr == 0 && dr != 0))
+          return Bitboard(0);
+      if ((sf != 0 && df % sf) || (sr != 0 && dr % sr))
+          return Bitboard(0);
+
+      int nF = sf ? df / sf : dr / sr;
+      int nR = sr ? dr / sr : df / sf;
+      if (nF != nR || nF <= 0)
+          return Bitboard(0);
+
+      Bitboard b = 0;
+      int f = int(file_of(s1));
+      int r = int(rank_of(s1));
+      for (int i = 1; i <= nF; ++i)
+      {
+          f += sf;
+          r += sr;
+          if (f < int(FILE_A) || f > int(FILE_MAX) || r < int(RANK_1) || r > int(RANK_MAX))
+              return Bitboard(0);
+          b |= make_square(File(f), Rank(r));
+      }
+      return b;
+  };
+
+  return make_path(stepF, stepR);
+}
+
+inline Bitboard bent_slider_between_bb(Square s1, Square s2, int pivotF, int pivotR, bool allowHorizontal, bool allowVertical) {
+  int f0 = int(file_of(s1));
+  int r0 = int(rank_of(s1));
+  int pf = f0 + pivotF;
+  int pr = r0 + pivotR;
+  if (pf < int(FILE_A) || pf > int(FILE_MAX) || pr < int(RANK_1) || pr > int(RANK_MAX))
+      return Bitboard(0);
+
+  int tf = int(file_of(s2));
+  int tr = int(rank_of(s2));
+  if (tf == pf && tr == pr)
+      return Bitboard(0);
+
+  Bitboard path = square_bb(make_square(File(pf), Rank(pr)));
+
+  if (allowHorizontal && tr == pr)
+  {
+      int step = tf > pf ? 1 : -1;
+      for (int f = pf + step;; f += step)
+      {
+          if (f < int(FILE_A) || f > int(FILE_MAX))
+              return Bitboard(0);
+          path |= square_bb(make_square(File(f), Rank(pr)));
+          if (f == tf)
+              return path;
+      }
+  }
+
+  if (allowVertical && tf == pf)
+  {
+      int step = tr > pr ? 1 : -1;
+      for (int r = pr + step;; r += step)
+      {
+          if (r < int(RANK_1) || r > int(RANK_MAX))
+              return Bitboard(0);
+          path |= square_bb(make_square(File(pf), Rank(r)));
+          if (r == tr)
+              return path;
+      }
+  }
+
+  return Bitboard(0);
+}
+
 inline Bitboard between_bb(Square s1, Square s2, PieceType pt) {
-  if (pt == HORSE)
-      return PseudoAttacks[WHITE][WAZIR][s2] & PseudoAttacks[WHITE][FERS][s1];
-  else if (pt == JANGGI_ELEPHANT)
-      return  (PseudoAttacks[WHITE][WAZIR][s2] & PseudoAttacks[WHITE][ALFIL][s1])
-            | (PseudoAttacks[WHITE][KNIGHT][s2] & PseudoAttacks[WHITE][FERS][s1]);
-  else
-      return between_bb(s1, s2);
+  RiderType r = AttackRiderTypes[pt];
+  Bitboard path = Bitboard(0);
+  auto remap_reverse_path = [&](Bitboard reversePath) {
+      return (reversePath & ~square_bb(s1)) | square_bb(s2);
+  };
+
+  if ((r & RIDER_HORSE) && (path = PseudoAttacks[WHITE][WAZIR][s2] & PseudoAttacks[WHITE][FERS][s1]))
+      return path;
+
+  if (r & RIDER_ELEPHANT)
+  {
+      for (auto [sf, sr] : { std::pair<int, int>{ 2, 2}, { 2,-2}, {-2, 2}, {-2,-2} })
+      {
+          if ((path = fixed_step_between_bb(s1, s2, sf, sr)))
+              return path;
+      }
+      if ((path = PseudoAttacks[WHITE][FERS][s2] & PseudoAttacks[WHITE][FERS][s1]))
+          return path;
+  }
+
+  if (r & RIDER_LAME_DABBABA)
+  {
+      for (auto [sf, sr] : { std::pair<int, int>{ 2, 0}, {-2, 0}, { 0, 2}, { 0,-2} })
+      {
+          if ((path = fixed_step_between_bb(s1, s2, sf, sr)))
+              return path;
+      }
+      if ((path = PseudoAttacks[WHITE][WAZIR][s2] & PseudoAttacks[WHITE][WAZIR][s1]))
+          return path;
+  }
+
+  if ((r & RIDER_JANGGI_ELEPHANT) && (path =  (PseudoAttacks[WHITE][WAZIR][s2] & PseudoAttacks[WHITE][ALFIL][s1])
+                                             | (PseudoAttacks[WHITE][KNIGHT][s2] & PseudoAttacks[WHITE][FERS][s1])))
+      return path;
+
+  if (r & (RIDER_SKI_ROOK_H | RIDER_SKI_ROOK_V | RIDER_SKI_BISHOP))
+  {
+      path = between_bb(s1, s2);
+      // Ski sliders ignore the first square in front of the attacker.
+      path &= ~PseudoAttacks[WHITE][KING][s2];
+      if (path)
+          return path;
+  }
+
+  if (r & RIDER_NIGHTRIDER)
+  {
+      if ((path = nightrider_between_bb(s1, s2)))
+          return path;
+  }
+
+  if (r & RIDER_GRIFFON_NH)
+  {
+      if ((path = bent_slider_between_bb(s1, s2, 0, 1, true, false)))
+          return path;
+      if ((path = bent_slider_between_bb(s2, s1, 0, 1, true, false)))
+          return remap_reverse_path(path);
+  }
+  if (r & RIDER_GRIFFON_SH)
+  {
+      if ((path = bent_slider_between_bb(s1, s2, 0, -1, true, false)))
+          return path;
+      if ((path = bent_slider_between_bb(s2, s1, 0, -1, true, false)))
+          return remap_reverse_path(path);
+  }
+  if (r & RIDER_GRIFFON_EV)
+  {
+      if ((path = bent_slider_between_bb(s1, s2, 1, 0, false, true)))
+          return path;
+      if ((path = bent_slider_between_bb(s2, s1, 1, 0, false, true)))
+          return remap_reverse_path(path);
+  }
+  if (r & RIDER_GRIFFON_WV)
+  {
+      if ((path = bent_slider_between_bb(s1, s2, -1, 0, false, true)))
+          return path;
+      if ((path = bent_slider_between_bb(s2, s1, -1, 0, false, true)))
+          return remap_reverse_path(path);
+  }
+
+  if (r & RIDER_MANTICORE_NE)
+  {
+      if ((path = bent_slider_between_bb(s1, s2, 1, 1, true, true)))
+          return path;
+      if ((path = bent_slider_between_bb(s2, s1, 1, 1, true, true)))
+          return remap_reverse_path(path);
+  }
+  if (r & RIDER_MANTICORE_NW)
+  {
+      if ((path = bent_slider_between_bb(s1, s2, -1, 1, true, true)))
+          return path;
+      if ((path = bent_slider_between_bb(s2, s1, -1, 1, true, true)))
+          return remap_reverse_path(path);
+  }
+  if (r & RIDER_MANTICORE_SE)
+  {
+      if ((path = bent_slider_between_bb(s1, s2, 1, -1, true, true)))
+          return path;
+      if ((path = bent_slider_between_bb(s2, s1, 1, -1, true, true)))
+          return remap_reverse_path(path);
+  }
+  if (r & RIDER_MANTICORE_SW)
+  {
+      if ((path = bent_slider_between_bb(s1, s2, -1, -1, true, true)))
+          return path;
+      if ((path = bent_slider_between_bb(s2, s1, -1, -1, true, true)))
+          return remap_reverse_path(path);
+  }
+
+  if (r & RIDER_GRYPHON_E)
+  {
+      if ((path = bent_slider_between_bb(s1, s2,  1,  1, true, true)))
+          return path;
+      if ((path = bent_slider_between_bb(s2, s1,  1,  1, true, true)))
+          return remap_reverse_path(path);
+      if ((path = bent_slider_between_bb(s1, s2,  1, -1, true, true)))
+          return path;
+      if ((path = bent_slider_between_bb(s2, s1,  1, -1, true, true)))
+          return remap_reverse_path(path);
+  }
+  if (r & RIDER_GRYPHON_W)
+  {
+      if ((path = bent_slider_between_bb(s1, s2, -1,  1, true, true)))
+          return path;
+      if ((path = bent_slider_between_bb(s2, s1, -1,  1, true, true)))
+          return remap_reverse_path(path);
+      if ((path = bent_slider_between_bb(s1, s2, -1, -1, true, true)))
+          return path;
+      if ((path = bent_slider_between_bb(s2, s1, -1, -1, true, true)))
+          return remap_reverse_path(path);
+  }
+
+  return between_bb(s1, s2);
 }
 
 
@@ -441,21 +661,159 @@ inline int edge_distance(File f, File maxFile = FILE_H) { return std::min(f, Fil
 inline int edge_distance(Rank r, Rank maxRank = RANK_8) { return std::min(r, Rank(maxRank - r)); }
 
 
+#ifdef VERY_LARGE_BOARDS
+Bitboard rider_attacks_bb(RiderType R, Square s, Bitboard occupied);
+
+template<RiderType R>
+inline Bitboard rider_attacks_bb(Square s, Bitboard occupied) {
+  static_assert(R != NO_RIDER && !(R & (R - 1))); // exactly one bit
+  return rider_attacks_bb(R, s, occupied);
+}
+
+inline Square lsb(Bitboard b);
+#else
+inline Bitboard fixed_step_rider_attacks(Square s, Bitboard occupied, int stepF, int stepR) {
+  Bitboard attack = 0;
+  int f = int(file_of(s));
+  int r = int(rank_of(s));
+
+  while (true)
+  {
+      f += stepF;
+      r += stepR;
+      if (f < int(FILE_A) || f > int(FILE_MAX) || r < int(RANK_1) || r > int(RANK_MAX))
+          break;
+      Square to = make_square(File(f), Rank(r));
+      attack |= to;
+      if (occupied & to)
+          break;
+  }
+
+  return attack;
+}
+
+inline Bitboard ski_slider_attacks(Square s, Bitboard occupied, int stepF, int stepR) {
+  int f = int(file_of(s)) + stepF;
+  int r = int(rank_of(s)) + stepR;
+  if (f < int(FILE_A) || f > int(FILE_MAX) || r < int(RANK_1) || r > int(RANK_MAX))
+      return Bitboard(0);
+
+  Bitboard attack = 0;
+  f += stepF;
+  r += stepR;
+  while (f >= int(FILE_A) && f <= int(FILE_MAX) && r >= int(RANK_1) && r <= int(RANK_MAX))
+  {
+      Square to = make_square(File(f), Rank(r));
+      attack |= to;
+      if (occupied & to)
+          break;
+      f += stepF;
+      r += stepR;
+  }
+  return attack;
+}
+
 template<RiderType R>
 inline Bitboard rider_attacks_bb(Square s, Bitboard occupied) {
 
-#ifdef BITBOARD_256
-  extern Bitboard rider_attacks_bb_256(RiderType r, Square s, Bitboard occupied);
-  return rider_attacks_bb_256(R, s, occupied);
-#else
   static_assert(R != NO_RIDER && !(R & (R - 1))); // exactly one bit
+  if constexpr (R == RIDER_GRIFFON_NH || R == RIDER_GRIFFON_SH || R == RIDER_GRIFFON_EV || R == RIDER_GRIFFON_WV) {
+      int r = int(rank_of(s));
+      int f = int(file_of(s));
+      if constexpr (R == RIDER_GRIFFON_NH) ++r;
+      if constexpr (R == RIDER_GRIFFON_SH) --r;
+      if constexpr (R == RIDER_GRIFFON_EV) ++f;
+      if constexpr (R == RIDER_GRIFFON_WV) --f;
+      if (r < 0 || r > int(RANK_MAX) || f < 0 || f > int(FILE_MAX))
+          return Bitboard(0);
+      Square src = make_square(File(f), Rank(r));
+      if (occupied & src)
+          return Bitboard(0);
+      if constexpr (R == RIDER_GRIFFON_NH || R == RIDER_GRIFFON_SH)
+          return rider_attacks_bb<RIDER_ROOK_H>(src, occupied);
+      else
+          return rider_attacks_bb<RIDER_ROOK_V>(src, occupied);
+  }
+  if constexpr (R == RIDER_MANTICORE_NE || R == RIDER_MANTICORE_NW || R == RIDER_MANTICORE_SE || R == RIDER_MANTICORE_SW) {
+      int r = int(rank_of(s));
+      int f = int(file_of(s));
+      if constexpr (R == RIDER_MANTICORE_NE) { ++r; ++f; }
+      if constexpr (R == RIDER_MANTICORE_NW) { ++r; --f; }
+      if constexpr (R == RIDER_MANTICORE_SE) { --r; ++f; }
+      if constexpr (R == RIDER_MANTICORE_SW) { --r; --f; }
+      if (r < 0 || r > int(RANK_MAX) || f < 0 || f > int(FILE_MAX))
+          return Bitboard(0);
+      Square src = make_square(File(f), Rank(r));
+      if (occupied & src)
+          return Bitboard(0);
+      return rider_attacks_bb<RIDER_ROOK_H>(src, occupied) | rider_attacks_bb<RIDER_ROOK_V>(src, occupied);
+  }
+  if constexpr (R == RIDER_LAME_DABBABA)
+      return  fixed_step_rider_attacks(s, occupied,  2,  0)
+            | fixed_step_rider_attacks(s, occupied, -2,  0)
+            | fixed_step_rider_attacks(s, occupied,  0,  2)
+            | fixed_step_rider_attacks(s, occupied,  0, -2);
+  if constexpr (R == RIDER_ELEPHANT)
+      return  fixed_step_rider_attacks(s, occupied,  2,  2)
+            | fixed_step_rider_attacks(s, occupied,  2, -2)
+            | fixed_step_rider_attacks(s, occupied, -2,  2)
+            | fixed_step_rider_attacks(s, occupied, -2, -2);
+  if constexpr (R == RIDER_SKI_ROOK_H)
+      return  ski_slider_attacks(s, occupied,  1, 0)
+            | ski_slider_attacks(s, occupied, -1, 0);
+  if constexpr (R == RIDER_SKI_ROOK_V)
+      return  ski_slider_attacks(s, occupied, 0,  1)
+            | ski_slider_attacks(s, occupied, 0, -1);
+  if constexpr (R == RIDER_SKI_BISHOP)
+      return  ski_slider_attacks(s, occupied,  1,  1)
+            | ski_slider_attacks(s, occupied,  1, -1)
+            | ski_slider_attacks(s, occupied, -1,  1)
+            | ski_slider_attacks(s, occupied, -1, -1);
+  if constexpr (R == RIDER_GRYPHON_E || R == RIDER_GRYPHON_W) {
+      // Aanca: step diagonally east/west, then V-slide + outward H-slide.
+      int r = int(rank_of(s)), f = int(file_of(s));
+      constexpr int df = (R == RIDER_GRYPHON_E) ? 1 : -1;
+      Bitboard result = 0;
+      for (int dr : {1, -1}) {
+          int nf_val = f + df, nr_val = r + dr;
+          if (nf_val < 0 || nf_val > int(FILE_MAX) || nr_val < 0 || nr_val > int(RANK_MAX))
+              continue;
+          Square src = make_square(File(nf_val), Rank(nr_val));
+          if (occupied & src) continue;
+          result |= src;
+          result |= fixed_step_rider_attacks(src, occupied,    0,  1); // V north (stepF=0,stepR=+1)
+          result |= fixed_step_rider_attacks(src, occupied,    0, -1); // V south
+          result |= fixed_step_rider_attacks(src, occupied, df*1,  0); // H outward (stepF=±1,stepR=0)
+      }
+      return result;
+  }
+  if constexpr (R == RIDER_UNICORN_NE || R == RIDER_UNICORN_NW
+             || R == RIDER_UNICORN_SE || R == RIDER_UNICORN_SW) {
+      // Unicorn: two knight-step variants, then diagonal continuation.
+      int r = int(rank_of(s)), f = int(file_of(s));
+      constexpr int diagR = (R == RIDER_UNICORN_NE || R == RIDER_UNICORN_NW) ? 1 : -1;
+      constexpr int diagF = (R == RIDER_UNICORN_NE || R == RIDER_UNICORN_SE) ? 1 : -1;
+      // Two knight step pairs that share the same diagonal continuation.
+      constexpr int stepR1 = (diagR > 0) ? 2 : -2,  stepF1 = (diagF > 0) ? 1 : -1;
+      constexpr int stepR2 = (diagR > 0) ? 1 : -1,  stepF2 = (diagF > 0) ? 2 : -2;
+      Bitboard result = 0;
+      for (auto [dr, dff] : std::initializer_list<std::pair<int,int>>{{stepR1,stepF1},{stepR2,stepF2}}) {
+          int nr = r + dr, nf = f + dff;
+          if (nr < 0 || nr > int(RANK_MAX) || nf < 0 || nf > int(FILE_MAX)) continue;
+          Square src = make_square(File(nf), Rank(nr));
+          if (!(occupied & src))
+              result |= fixed_step_rider_attacks(src, occupied, diagF, diagR);
+      }
+      return result;
+  }
+
   const Magic& m =  R == RIDER_ROOK_H ? RookMagicsH[s]
                   : R == RIDER_ROOK_V ? RookMagicsV[s]
                   : R == RIDER_CANNON_H ? CannonMagicsH[s]
                   : R == RIDER_CANNON_V ? CannonMagicsV[s]
-                  : R == RIDER_LAME_DABBABA ? LameDabbabaMagics[s]
+                  : R == RIDER_LAME_DABBABA ? BishopMagics[s]
                   : R == RIDER_HORSE ? HorseMagics[s]
-                  : R == RIDER_ELEPHANT ? ElephantMagics[s]
+                  : R == RIDER_ELEPHANT ? BishopMagics[s]
                   : R == RIDER_JANGGI_ELEPHANT ? JanggiElephantMagics[s]
                   : R == RIDER_CANNON_DIAG ? CannonDiagMagics[s]
                   : R == RIDER_NIGHTRIDER ? NightriderMagics[s]
@@ -464,7 +822,6 @@ inline Bitboard rider_attacks_bb(Square s, Bitboard occupied) {
                   : R == RIDER_GRASSHOPPER_D ? GrasshopperMagicsD[s]
                   : BishopMagics[s];
   return m.attacks[m.index(occupied)];
-#endif
 }
 
 inline Square lsb(Bitboard b);
@@ -472,14 +829,45 @@ inline Square lsb(Bitboard b);
 inline Bitboard rider_attacks_bb(RiderType R, Square s, Bitboard occupied) {
 
   assert(R != NO_RIDER && !(R & (R - 1))); // exactly one bit
-#ifdef BITBOARD_256
-  extern Bitboard rider_attacks_bb_256(RiderType R, Square s, Bitboard occupied);
-  return rider_attacks_bb_256(R, s, occupied);
-#else
+  if (R == RIDER_LAME_DABBABA)
+      return  fixed_step_rider_attacks(s, occupied,  2,  0)
+            | fixed_step_rider_attacks(s, occupied, -2,  0)
+            | fixed_step_rider_attacks(s, occupied,  0,  2)
+            | fixed_step_rider_attacks(s, occupied,  0, -2);
+  if (R == RIDER_ELEPHANT)
+      return  fixed_step_rider_attacks(s, occupied,  2,  2)
+            | fixed_step_rider_attacks(s, occupied,  2, -2)
+            | fixed_step_rider_attacks(s, occupied, -2,  2)
+            | fixed_step_rider_attacks(s, occupied, -2, -2);
+  if (R == RIDER_SKI_ROOK_H)
+      return  ski_slider_attacks(s, occupied,  1, 0)
+            | ski_slider_attacks(s, occupied, -1, 0);
+  if (R == RIDER_SKI_ROOK_V)
+      return  ski_slider_attacks(s, occupied, 0,  1)
+            | ski_slider_attacks(s, occupied, 0, -1);
+  if (R == RIDER_SKI_BISHOP)
+      return  ski_slider_attacks(s, occupied,  1,  1)
+            | ski_slider_attacks(s, occupied,  1, -1)
+            | ski_slider_attacks(s, occupied, -1,  1)
+            | ski_slider_attacks(s, occupied, -1, -1);
+  if (R == RIDER_GRIFFON_NH) return rider_attacks_bb<RIDER_GRIFFON_NH>(s, occupied);
+  if (R == RIDER_GRIFFON_SH) return rider_attacks_bb<RIDER_GRIFFON_SH>(s, occupied);
+  if (R == RIDER_GRIFFON_EV) return rider_attacks_bb<RIDER_GRIFFON_EV>(s, occupied);
+  if (R == RIDER_GRIFFON_WV) return rider_attacks_bb<RIDER_GRIFFON_WV>(s, occupied);
+  if (R == RIDER_MANTICORE_NE) return rider_attacks_bb<RIDER_MANTICORE_NE>(s, occupied);
+  if (R == RIDER_MANTICORE_NW) return rider_attacks_bb<RIDER_MANTICORE_NW>(s, occupied);
+  if (R == RIDER_MANTICORE_SE) return rider_attacks_bb<RIDER_MANTICORE_SE>(s, occupied);
+  if (R == RIDER_MANTICORE_SW) return rider_attacks_bb<RIDER_MANTICORE_SW>(s, occupied);
+  if (R == RIDER_GRYPHON_E) return rider_attacks_bb<RIDER_GRYPHON_E>(s, occupied);
+  if (R == RIDER_GRYPHON_W) return rider_attacks_bb<RIDER_GRYPHON_W>(s, occupied);
+  if (R == RIDER_UNICORN_NE) return rider_attacks_bb<RIDER_UNICORN_NE>(s, occupied);
+  if (R == RIDER_UNICORN_NW) return rider_attacks_bb<RIDER_UNICORN_NW>(s, occupied);
+  if (R == RIDER_UNICORN_SE) return rider_attacks_bb<RIDER_UNICORN_SE>(s, occupied);
+  if (R == RIDER_UNICORN_SW) return rider_attacks_bb<RIDER_UNICORN_SW>(s, occupied);
   const Magic& m = magics[lsb(R)][s]; // re-use Bitboard lsb for riders
   return m.attacks[m.index(occupied)];
-#endif
 }
+#endif
 
 
 /// attacks_bb(Square) returns the pseudo attacks of the give piece type
@@ -496,7 +884,7 @@ inline Bitboard attacks_bb(Square s) {
 
 /// attacks_bb(Square, Bitboard) returns the attacks by the given piece
 /// assuming the board is occupied according to the passed Bitboard.
-/// Sliding piece attacks do not continue passed an occupied square.
+/// Sliding piece attacks do not continue past an occupied square.
 
 template<PieceType Pt>
 inline Bitboard attacks_bb(Square s, Bitboard occupied) {
@@ -514,28 +902,30 @@ inline Bitboard attacks_bb(Square s, Bitboard occupied) {
 
 /// pop_rider() finds and clears a rider in a (hybrid) rider type
 
-inline RiderType pop_rider(RiderType* r) {
-  assert(*r);
-  const RiderType r2 = *r & ~(*r - 1);
-  *r &= *r - 1;
+inline RiderType pop_rider(RiderType& r) {
+  assert(r);
+  const RiderType r2 = r & ~(r - 1);
+  r &= r - 1;
   return r2;
 }
 
 inline Bitboard attacks_bb(Color c, PieceType pt, Square s, Bitboard occupied) {
+  assert(pt != NO_PIECE_TYPE);
   Bitboard b = LeaperAttacks[c][pt][s];
   RiderType r = AttackRiderTypes[pt];
   while (r)
-      b |= rider_attacks_bb(pop_rider(&r), s, occupied);
+      b |= rider_attacks_bb(pop_rider(r), s, occupied);
   return b & PseudoAttacks[c][pt][s];
 }
 
 
 template <bool Initial=false>
 inline Bitboard moves_bb(Color c, PieceType pt, Square s, Bitboard occupied) {
+  assert(pt != NO_PIECE_TYPE);
   Bitboard b = LeaperMoves[Initial][c][pt][s];
   RiderType r = MoveRiderTypes[Initial][pt];
   while (r)
-      b |= rider_attacks_bb(pop_rider(&r), s, occupied);
+      b |= rider_attacks_bb(pop_rider(r), s, occupied);
   return b & PseudoMoves[Initial][c][pt][s];
 }
 
@@ -546,11 +936,15 @@ inline int popcount(Bitboard b) {
 
 #ifndef USE_POPCNT
 
-#ifdef BITBOARD_256
-  return  PopCnt16[b.b64[0] >> 48] + PopCnt16[(b.b64[0] >> 32) & 0xffff] + PopCnt16[(b.b64[0] >> 16) & 0xffff] + PopCnt16[b.b64[0] & 0xffff]
-        + PopCnt16[b.b64[1] >> 48] + PopCnt16[(b.b64[1] >> 32) & 0xffff] + PopCnt16[(b.b64[1] >> 16) & 0xffff] + PopCnt16[b.b64[1] & 0xffff]
-        + PopCnt16[b.b64[2] >> 48] + PopCnt16[(b.b64[2] >> 32) & 0xffff] + PopCnt16[(b.b64[2] >> 16) & 0xffff] + PopCnt16[b.b64[2] & 0xffff]
-        + PopCnt16[b.b64[3] >> 48] + PopCnt16[(b.b64[3] >> 32) & 0xffff] + PopCnt16[(b.b64[3] >> 16) & 0xffff] + PopCnt16[b.b64[3] & 0xffff];
+#ifdef VERY_LARGE_BOARDS
+  return  PopCnt16[(b.b64[0] >>  0) & 0xFFFF] + PopCnt16[(b.b64[0] >> 16) & 0xFFFF]
+        + PopCnt16[(b.b64[0] >> 32) & 0xFFFF] + PopCnt16[(b.b64[0] >> 48) & 0xFFFF]
+        + PopCnt16[(b.b64[1] >>  0) & 0xFFFF] + PopCnt16[(b.b64[1] >> 16) & 0xFFFF]
+        + PopCnt16[(b.b64[1] >> 32) & 0xFFFF] + PopCnt16[(b.b64[1] >> 48) & 0xFFFF]
+        + PopCnt16[(b.b64[2] >>  0) & 0xFFFF] + PopCnt16[(b.b64[2] >> 16) & 0xFFFF]
+        + PopCnt16[(b.b64[2] >> 32) & 0xFFFF] + PopCnt16[(b.b64[2] >> 48) & 0xFFFF]
+        + PopCnt16[(b.b64[3] >>  0) & 0xFFFF] + PopCnt16[(b.b64[3] >> 16) & 0xFFFF]
+        + PopCnt16[(b.b64[3] >> 32) & 0xFFFF] + PopCnt16[(b.b64[3] >> 48) & 0xFFFF];
 #elif defined(LARGEBOARDS)
   union { Bitboard bb; uint16_t u[8]; } v = { b };
   return  PopCnt16[v.u[0]] + PopCnt16[v.u[1]] + PopCnt16[v.u[2]] + PopCnt16[v.u[3]]
@@ -562,8 +956,9 @@ inline int popcount(Bitboard b) {
 
 #elif defined(_MSC_VER) || defined(__INTEL_COMPILER)
 
-#ifdef BITBOARD_256
-  return (int)_mm_popcnt_u64(b.b64[0]) + (int)_mm_popcnt_u64(b.b64[1]) + (int)_mm_popcnt_u64(b.b64[2]) + (int)_mm_popcnt_u64(b.b64[3]);
+#ifdef VERY_LARGE_BOARDS
+  return (int)_mm_popcnt_u64(b.b64[0]) + (int)_mm_popcnt_u64(b.b64[1])
+       + (int)_mm_popcnt_u64(b.b64[2]) + (int)_mm_popcnt_u64(b.b64[3]);
 #elif defined(LARGEBOARDS)
   return (int)_mm_popcnt_u64(uint64_t(b >> 64)) + (int)_mm_popcnt_u64(uint64_t(b));
 #else
@@ -572,8 +967,9 @@ inline int popcount(Bitboard b) {
 
 #else // Assumed gcc or compatible compiler
 
-#ifdef BITBOARD_256
-  return __builtin_popcountll(b.b64[0]) + __builtin_popcountll(b.b64[1]) + __builtin_popcountll(b.b64[2]) + __builtin_popcountll(b.b64[3]);
+#ifdef VERY_LARGE_BOARDS
+  return __builtin_popcountll(b.b64[0]) + __builtin_popcountll(b.b64[1])
+       + __builtin_popcountll(b.b64[2]) + __builtin_popcountll(b.b64[3]);
 #elif defined(LARGEBOARDS)
   return __builtin_popcountll(b >> 64) + __builtin_popcountll(b);
 #else
@@ -590,13 +986,10 @@ inline int popcount(Bitboard b) {
 
 inline Square lsb(Bitboard b) {
   assert(b);
-#ifdef BITBOARD_256
-  if (b.b64[3])
-      return Square(__builtin_ctzll(b.b64[3]));
-  if (b.b64[2])
-      return Square(__builtin_ctzll(b.b64[2]) + 64);
-  if (b.b64[1])
-      return Square(__builtin_ctzll(b.b64[1]) + 128);
+#ifdef VERY_LARGE_BOARDS
+  if (b.b64[3]) return Square(__builtin_ctzll(b.b64[3]));
+  if (b.b64[2]) return Square(__builtin_ctzll(b.b64[2]) + 64);
+  if (b.b64[1]) return Square(__builtin_ctzll(b.b64[1]) + 128);
   return Square(__builtin_ctzll(b.b64[0]) + 192);
 #elif defined(LARGEBOARDS)
   if (!(b << 64))
@@ -607,14 +1000,11 @@ inline Square lsb(Bitboard b) {
 
 inline Square msb(Bitboard b) {
   assert(b);
-#ifdef BITBOARD_256
-  if (b.b64[0])
-      return Square(255 ^ __builtin_clzll(b.b64[0]));
-  if (b.b64[1])
-      return Square(191 ^ __builtin_clzll(b.b64[1]));
-  if (b.b64[2])
-      return Square(127 ^ __builtin_clzll(b.b64[2]));
-  return Square(63 ^ __builtin_clzll(b.b64[3]));
+#ifdef VERY_LARGE_BOARDS
+  if (b.b64[0]) return Square(192 + (63 - __builtin_clzll(b.b64[0])));
+  if (b.b64[1]) return Square(128 + (63 - __builtin_clzll(b.b64[1])));
+  if (b.b64[2]) return Square(64 + (63 - __builtin_clzll(b.b64[2])));
+  return Square(63 - __builtin_clzll(b.b64[3]));
 #elif defined(LARGEBOARDS)
   if (b >> 64)
       return Square(int(SQUARE_BIT_MASK) ^ __builtin_clzll(b >> 64));
