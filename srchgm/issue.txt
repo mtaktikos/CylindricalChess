@@ -1,0 +1,292 @@
+blockers_for_king
+  evaluate.cpp
+   mobilityArea: excludes the blockers.
+   mobility calculation: assumes must stay on ray King-piece. (WHy not piece-pinner?)
+   king safety: number of such blockers is term
+
+ movegen.cpp
+   allows king moves during generation of QUIET_CHECKS only if king is blocker
+   to find discoverd check by pawn push when generating QUIET_CHECKS
+
+  position.cpp
+    in gives_check, for detecting discovered checks by given move
+    to see if rook discovers check on castling
+    to exclude blockers from being used in SEE
+    for chase testing
+
+blockersForKing
+  position.cpp
+    set from slider_blockers
+    calculate newPins and newDiscoverers (for chasing)
+
+slider_blockers
+  evaluate.cpp
+    penalty for pieces pinned or possible discovered attacks by Rook or Bishop on Queen
+
+  position.cpp
+    to set blockersForKing
+
+non_sliding_riders
+  movegen.cpp
+    to check whether e.p. captures can be evasions
+    to test whether non-King moves should be tried for EVASIONS non-sliding_riders are ignored as double-check deliverers
+    when such a rider checks, all non-captures are tried as evasions, rather than just those to the check ray
+
+  position.cpp
+    to determine if move is pseudo-legal, excluding non-captures on double or leaper check is only done if there are no non-sliding checkers.
+    force the full attackers_to test for detecting discovered check in gives_check when the opponent has any non-sliding riders on the board (instead of relying on slider_blockers & from)
+    similarly force this to see if non-last-rank castling delivers a discovered check
+
+nonSlidingRiders
+  position.cpp
+    set as AttackRiderTypes & NON_SLIDING_RIDERS
+
+ASYMMETRICAL_RIDERS
+  position.cpp
+    reverses move generation when detecting aligned pieces ('snipers') in slider_blockers
+    same in attackers_to for determining actual (= unblocked) attackers
+
+HOPPING_RIDERS
+  position.cpp
+    generates actual moves for detecting direct check in gives_check, rather than relying on the check_squares
+    excludes them from becoming 'slidingSnipers'
+
+
+
+
+snipers = pieces with non-leaping pseudoAttack on target, which do not actualy attack the target
+slidingSnipers = snipers that have no hopper moves
+remove the slidingSnipers from occupancy
+run through sliders
+  remove it too, if it was a hopping slider
+  get the path to the King
+  count pieces on it
+
+
+ISSUE
+
+The Nightrider Magics mask is unnecessarily large. Squares that do not block any subsequent steps do not need to be in the mask, as their occupancy has no effect on the attacks. For sliders such squares can only be at an edge. But for riders with larger stride their next step can leave the board from larger distance to the edge.
+
+With the minimal mask the size of the Nightrider shrinks from >7MB to 840KB.
+
+This pretty much removes the arguments for not adding additional riders such as CC and ZZ. These require attacks tables of only 35KB and 15KB, respectively, which does not eat a significant fraction of the memory demand we just saved on the Nightrider. Diagonal and orthogonal riders do not need any tables of their own; they can use the Rook/Bishop tables with adapted masks.
+
+The Camel- and Zebrariders of course need new magic multipliers, which from a maintenance perspective is undesirable when they have to be supplied in preinitialized tables. So I propose to drop the precomputedmagics entirely, and Always generate the multipliers on the fly. I developed an efficiient routine for that, which takes no noticeable time. That makes it much easier to add new rider types or lame leapers.
+
+BTW, why do all piece types store their attacks in ...Table arrays dedicated to them, with a tailored precomputed size? They pack the tables for the individual squares all in the same array. They might as well pack them in one large array shared by all of RiderTypes, just add the attacks bitboards for each square behind everything already there (like they also do now, except that cuurently only their own stuff is there). Then the only thing to worry about is the total size of that array, and a warning message could be printed when it gets exceeded that informs the user how much is required.
+
+The Directions maps also have the potential to become a maintenance nightmare, when we keep adding RiderTypes. Perhaps these should be generated at run time from Betza notation. I.e. pass the PieceInfo structure returned by from_beta to init_magics instead of a directions map, and let the latter use the 'steps' map in that structure before discarding it again. And another routine is_move_of could test if a given DirectionCode occurs in the steps map it obtains from from_betza.
+
+After studying FSF's current check-detection system I came to the following conclusion:
+
+At the end of do_move a routine gives_check determines whether the move is a check, (and thus whether an evasion node would follow). Failing to identify a check leads to a King caapture in the daughter, and eventually a segmentation violation (if asserts are not used to crash on the King capture). The detection distinguishes direct checks and discovered checks (and a lot of special case, such as e.p. and castling, which I did not study). The direct case woriginally (i.e. in normal Stockfish) tested whether the move ends on one of the pre-computed checking_squares for that piece type. In FSF this is pre-empted by two other tests: one for the Janggi Cannon, and one for hoppers/asymmetric sliders. The latter do not rely on pre-computed checking squares, but generate the moves of the piece from where it stands
+
+The Cannon test is a bit special, as it checks the Janggi ban on Cannons hopping other Cannons. At some point we probably want to generalize it to other types of hopping bans, E.g. having a PieceSet for hoppers that suffer from those, and test that instead of an explicit piece type. For each of those it would then have to be tested whether these are used as a mount for attacking the King. The current test (which intends to do that for just the Janggi Cannon type), namely removing the all Jangi Cannons from occupied, and test whether the mount still exists is a bit flakey for this purpose: the piece could have Rook moves next to the blocked Cannon moves. So it would be better to equip every hopper type that can be blocked with a PieceSet to indicate which types can block it. Then generate a between_bb for the moved blockable hopper and King to get the mount, determine its type with piece_on, and test whether it is in the set. If so, there is no check. Otherwise landing on the precomputed checking_squares for an (unblocked) hopper of the moved type should be just as (un)reliable as for unblockable hoppers. Well, we can cross that bridge when we rach it...
+
+The next exception for direct-check testing is for hoppers and asymmetric riders. For the latter is clear why this is needed: the checking squares are generated starting from the King, but the asynnetric riders follow a different path in the opposit direction. Genrating the moves starting from where they land reliably solves that. For the hoppers it is less clear why there has to be an exception; I suppose it has to do that they can be 'auto-discovering', i.e. check by hopping away from the King to a square where other hoppers of that type, when they would land there, do not check because the moved piece was blocking that. To catch those moves as delivering direct check you would really have to test after the move, which is now done. I think it would be better to consider this a discovered check, though, and catch it there. Grasshopping moves are asymmetric by nature, so they would have to be generated in reverse direction, like for the bent sliders / bent lame leapers.
+
+Then there is the detection of discovered checks. Originally this was based on pre-calculating blockes_for_king (a special cae of slider_blockers). These are defined as pieces that are blocking a more distant slider from reaching the King. (So they are pinned, or can deliver discovered check, depending on who owns them.) If such a friendly blocker moves, a robust (but expensive) attackers_to test is done to determine whether here indeed is a discovered check. (Because that depends on the destination; if an ordinary slider stays on the ray there is no check. (Possible improvement: the routine that determines slider_blockers already generated an betwee_bb for that ray. It could store that, so that we could easily test whether the move of the blocker actually discovers a check, or lands on that ray, without doing an expensive test. If slider_blockers was reliable, that is...).
+
+To catch auto-discovered checks, there can be a new class of pieces. slider_blockers could designate any piece of such a type as a blocker, even if there is no slider behind it. It could then indicate where it should (not) land to deliver the check. Problem is that auto-discovery capability is a direction-dependent property, not a piece-dependent property. So we cannot just assume that such a piece should land on the ray away from the King. And the auto-discovery capabilty is a complex property. (But it could be statically determined at game start.) The requirement is that it should have some lame slider moves along the ray connecting it to King (which blocks the generation of checking_squares by that move further away from the King, and a move in the opposit direction that would bring it to a square where that lame slider move would attack the King. So we should statically prepare a bitboard set indexed by square where the lame move in the opposit direction would check. Unfortunately this also depends on where the King is. So we could tabulate pseudoAttacks of that lame slide, to be looked up (for the enemy color) from the King square, intersect that with the 
+
+The Original slider_blockers routine identifies every slider that moves towards King as 'sniper', which could potentially be discovered if the correct number of pieces (the blockers) is on the ray between it and the King. In to count this it ignores other snipers. The idea no doubt is to also detect batteries that pin a piece on King, and then not use the pinned piece in SEE on a square elsewhere, as long as any of the pinneers is still there. For discovered checks this has no relevance; only the foremost piece of the battery can deliver check, and you would not care if multiple attackers are discovered anyway.
+
+But removing the snipers when counting the in-between pieces backfires if the snipers are a mix of siders and hoppers. In particular, when the nearest piece on the ray is a Cannon, (which then has no mount, doesn't check, and is consequently designated a sniper) and behind it are a Knight and a Rook, taking away that Cannon during the counting for the Rook sniper would erroneously identify the Knight as a slider_blocker, able to discover the Rook. I could not think of any other combinations where the algorithm fails: King - blocker - slider - hopper already identifies the blocker as a discovered-check hazard because of the slider, and King - blocker - hopper - … already checks, making what happens if the blocker moves irrelevant. So it seems we can fix things by excluding hoppers that look the King in the eye from being considered snipers.
+
+Presence of hoppers opens the possibility for a new type of check, though, which is neither direct nor discovered: a piece landing in between King and hopper can act as mount to create a check. Let's cal this 'activated check'. In FSF this is now handled by testing any move with a full attacks_to if there are hoppers (or other non-sliding riders) anywhere on the board. This seems overdoing it. For one, it would suffice to do this only if there are any hoppers for which the King is in their pseudoAttacks. And it should in fact be the nearest piece on the ray to King. This is what slider_blockers already has to test, to remove such hoppers from the sniper board. When it is doing that during collection of checking_info, it might as well OR the between_bb with a board similar to the checking_squares, and moves that land on it as activated check. There is one catch, though: the piece landing there could be the very same hopper (if it is a Xiangqi Cannon) that we suppose would get activated. Other hoppers landing there would of course be OK.
+
+But hoppers are 'auto-discovering' pieces: they can hop away from the King over the piece behind them, (for the XQ Cannon only to capture), and then use the hopped piece again as a mount to check the King, over the square they came from, and were thus blocking. That means that, when they are aligned to King, their moves should always be tested for checking, and we could have stored a bitboard for each such hopper to indicate where they must move to to auto-discover their check. There could be a similar bitboard stored for them indicating the on-ray squares they would not check from, and those squares should be excluded from the hopperActivation board before it is tested whether their landing square activates a hopper.
+
+Some other things to worry about:
+
+True riders like DD or AA should not really pose a problem. We should just be careful that not any square between the King and themselves can contain a blocker, so the between_bb should be masked with their pesudoAttacks before counting the number of pieces in between. They cannot be auto-discovering, because it can only block checks from more distant squares at squares where it already checks.
+
+Init:
+
+PieceSet riderAttacks[240]; // tabulates which rides can travel to a relative location
+Bitboard leaperThreatArea[COLOR_NB][PIECE_TYPE_NB][SQUARE_NB]; // marks squares from which leaps can attack
+Bitboard riderThreatArea[COLOR_NB][PIECE_TYPE_NB][SQUARE_NB];  // mark squares from which rides (or lame leaps) can attack
+
+// apply a give ride to the table
+
+void Ray(int d, RiderType r, int range) {
+    for(int n = 2; n < range; n++) riderAttacks[120 + n*d] |= r; // note that the first step is omitted, as it is a pure leap
+}
+
+// Tabulate which rides can cause a given location change
+
+for(s = -120; s < 120; s++) riderAttacks[s] = 0;
+for(auto d : {1, -1}) Ray(d, RIDER_ROOK_H | RIDER_CANNON_H | RIDER_GRASSHOPPER_D, 11);
+for(auto d : {12, -12}) Ray(d, RIDER_ROOK_V | RIDER_CANNON_V | RIDER_GRASSHOPPER_V, 9);
+for(auto d : {13, -13, 11, -11}) Ray(d, RIDER_BISHOP | RIDER_CANNON_DIAG | RIDER_GRASSHOPPER_D, 9);
+for(auto d : {25, -25, 23, -23}) Ray(d, RIDER_NIGHTRIDER, 4);
+for(auto d : {14, -14, 10, -10}) Ray(d, RIDER_NIGHTRIDER, 5);
+for(auto d : {15, -15,  9,  -9, 35, -35, 37, -37}) Ray(d, RIDER_CAMELRIDER, 3);
+for(auto d : {27, -27, 21, -21, 34, -34, 38, -38}) Ray(d, RIDER_ZEBRARIDER, 3);
+for(auto d : {25, -25, 23, -23, 10, -10, 14, -14}) riderAttacks[120 + d] |= RIDER_HORSE;
+for(auto d : {27, -27, 21, -21, 34, -34, 38, -38}) riderAttacks[120 + d] |= RIDER_JANGGI_ELEPHANT;
+for(auto d : {2, -2, 24, -24}) riderAttacks[120 + d] |= RIDER_LAME_DABBABA;
+for(auto d : {26, -26, 22, -22}) riderAttacks[120 + d] |= RIDER_ELEPHANT;
+
+// Make bitboards of each theoretically possible location from which a square can be attacked
+// one with leaper moves, the other with rides
+
+for(auto c : {WHITE, BLACK}) {
+    for(Square s = SQ_A1; s < SQUARE_NB; ++s) {
+        leaperThreatArea[c][pt][s] = 0;
+        riderThreatArea[c][pt][s] = 0;
+        PieceSet ps = piece_types();
+        while(ps) {
+            PieceType pt = pop_lsb(ps);
+            leaperThreatArea[c][pt]ps] |= LeaperAttacks[c][pt][s];
+            riderThreatArea[c][pt]ps] |= PseudoAttacks[c][pt][s] & ~LeaperAttacks[c][pt][s];
+        }
+    }
+}
+
+attacks_to:
+
+    Bitboard attackers = 0;
+
+    // find leaper attacks
+
+    Bitboard b = leaperThreatArea[Us][ksq];     // KNADJZGH, the OR of all opponent's LeaperAttacks (usually only KN)
+    b &= pieces(Them);                          // get pieces within it
+    while(b) {                                  // for each such piece (typically very few, as threat area is small)
+        Square from = pop_lsb(b);               // locate it
+        PieceType pt = type_of(piece_on(from)); // determine its type
+        if(LeaperAttacks[Them][pt][from] & ksq) // test if it hits target
+            attackers |= from;
+    }
+
+    // find rider attacks
+
+    Bitboard b = riderThreatArea[Us][ksq]; // contains moves of ski-queen, possibly with N and Z if Horse or Janggi Elephant participate
+    b &= pieces(Them); // potential checkers for right type and occupancy. (Perhaps not so few due to large intersection with enemy camp.)
+#ifdef HAVE_RIDER_BITBOARD
+    b &= riders();      // try to reduce their number by weeding out pure leapers.
+#else
+    b &= ~pieces(PAWN); // This probably helps, because we eliminate lost of non-riding candidates at once
+#endif
+    while(b) {                                              // for each remaining piece
+        Square from = pop_lsb(b);                           // potential source of attack
+        PieceType pt = type_of(piece_on(from));             // type of piece there
+        if(PseudoAttacks[Them][pt][from] & ksq) {           // King is in its pseudo-attacks: must have ride
+            RiderType r = riderAttacks[ksq - from + 120];   // rides that can reach the King from there
+            r &= AttackRiderTypes[pt];                      // select all those that piece has
+            while(r) {                                      // for each such ride (normally 1)
+                RiderType n = r & ~(r - 1);                 // isolate one ride
+                r -= n;                                     // pop it
+                if(rider_atacks_bb(n, s, pieces()) & ksq) { // test if it reaches King
+                    attackers |= from;                      // hit!
+                    break; // no sense trying to add the same piece twice...
+                }
+            }
+        }
+    }
+        
+
+blockers_for_king:
+
+    Bitboard blockers = 0;                   // pieces that discover check on moving
+    Bitboard activations = 0;                // square where landing on activates a hopper attack
+    Bitboard autodiscoverers = 0;            // pieces that can discover their own future check
+    Bitboard b = riderThreatArea[Them][ksq]; // Ski-Queen like (perhaps with N and Z squares?)
+    b &= pieces(Us);
+    b &= ~pieces(PAWN);    // This probably pays, because we eliminate lost of non-riding candidates at once
+    while(b) {
+        Square from = pop_lsb(b);                   // extract a potential checker
+        PieceType pt = type_of(piece_on(from));     // determine its type
+        if(PseudoAttacks[Us][pt][from] & ksq) {     // King is in its pseudo-attacks: piece must have ride in right direction
+            Ridertype r = riderAttacks[ksq - from]; // rides that can reach the King from here for the right occupancy
+            r &= AttackRiderTypes[pt];              // see which of those the piece has. (At least one, or previous test would have failed!)
+            while(r) {                              // usually there would only be 1 ride in any direction
+                RiderType p = r & ~(r - 1);           // isolate one ride
+                r -= p;                               // pop it
+                Bitboard ray = between_bb(ksq, from); // path from King to potential attacker
+                ray &= RideMask[r][from];             // where ride along it can be blocked (needed for DD, AA, etc.), strips 'from'.
+                Bitboard obstacles = ray & pieces();  // the pieces on that part of the ray
+                int n = popcount(obstacles);          // how many?
+                if(p & RIDER_HOPPER) {                // hopper or grasshopper ride
+                    if(n > 2) continue;               // too many intervening pieces, ignore
+                    PieceSet ps = HopBlockers[pt];    // more general way to handle Janggi Cannon: pieces types we cannot hop
+                    if(ps && n) {                     // normally hoppers cannot be blocked, and the code below is skipped
+                        Bitboard bb = obstacles;      // start examining the blocker(s)
+                        while(bb)
+                            Square s = pop_lsb(bb);             // extract an intervening piece
+                            PieceType t = type_of(piece_on(s)); // determine its type
+                            if(ps & t)                          // it blocks this hopper type all by itself
+                                obstacles &= s;                 // so others on ray not needed to block
+                        }
+                        if(!obstacles) continue;      // two hop-blockers, so neither can discover, ignore
+                    }
+                    if(r & RIDER_GRASSHOPPER) {       // grasshopper ride. Take account of post-hop range.
+                         Bitboard adjacent = ray & PseudoAttacks[Us][KING][ksq]; // square on path next to target
+                         if(adjacent & obstacles) {   // there is a piece next to King
+                             if(n == 1) continue;     // if it is the only one, this already checks, ignore
+                             obstacles -= adjacent;   // is essential mount, moving it doesn't discover anything
+                         } else {
+                             ray = adjacent;          // onlysquare on ray where the grasshopper could be activated
+                             if(n == 1) {             // 1 piece between grasshopper and king, but not adjacent
+                                 Square s = lsb(obstacles);
+                                 autodiscoverers |= s;// this piece could activate the grasshopper
+                                 exceptions[s] = ray; // ... by moving to the King-adjacent square
+                             }
+                             obstacles = 0;           // grasshopper move not possible without adjacent mount
+                         }
+                    } else if(n == 1) continue;       // ordinary hopper checks over a single piece, or cannot hop it; ignore
+                    if(n == 0) {                      // eye to eye with King or grasshopper with 1 non-adjacent intervening piece
+                        activations |= ray;           // mark activation checks 
+                        autodiscoverers |= from;
+                        ...     // add autodiscovering moves to ray (also exception for mount when n == 1?)
+                        exceptions[from] = ray;       // hopper cannot activate itself; remember where it could try
+                        break;                        // nothing more to do on this ray
+                    }
+                } else { // piece is rider or lame leaper
+                    if(n != 1) continue;                        // too many intervening pieces, or already checking; ignore
+                    exceptions[lsb(obstacles)] = ray;           // remember which moves of this blocker do not discover the attack
+                }
+                blockers |= obstacles;                          // collect discoverers of attack
+            }
+        }
+    }
+
+
+Pieces that can deliver discovered check would not do so with their moves along the checking ray.
+Move of 'discoverer' should test a Bitboard for its square that tells which of it moves give discovered check
+The board should omit the squares where they keep blocking the sniper. Notice that for rider snipers like DD this is not
+just the entire ray between sniper and King, but has to be ANDed with the mask for that ride.
+
+Other pieces will give check when they land on a check_square, either a direct check or a hopper activation.
+The check_squares are calculated per type for the position, but for any type ORed with the hopperActivations board.
+They are calculated by retro-moving from the King, but this does not work for asymmetricals.
+This could be fixed by having an actual retro-move generator for those rides (bent riders and grasshoppers) during check_square generation.
+It is currently solved by adding such pieces to a non_sliding_riders board, and apply a forward test for direct check on any move of those.
+It might be better to  add the pseudoAttacks for these asymmetricals, and then only do the prograde test when they land on such a square.
+(I.e. swap the order of testing for check_squares & to and ASYMMETRICAL_RIDERS. For normal pieces both tests are done anyway.)
+
+The only case where it then fails is on auto-discovered checks, where the old location of the piece would have blocked
+the retrograde move to the checking square. Testing for this should be deferred to the discovered-check test, because
+not all pieces of the same type landing on that square would deliver check. In fact, none but one would.
+Auto-discovery can happen to hoppers and lame pieces, which can check by moving radially away from the King. 
+For hoppers eying the King the retrograde moves would mark the squares beyond it as check_squares,
+and indeed they would be for other such hoppers. But not for the hopper that served as the mount for these moves.
+for that hopping over the piece behind it would use the latter as a mount for checking over its former position.
+(Note that grasshoppers cannot do that!)
+Pieces like WnH can check on an H square by moving there from a D-square. If a move from an unattacked blocking square of the lame move
+to a square where the piece would check only if the blocking was lifted makes this possible.
+
+The solution would be to mark such pieces as discoverer (i.e. not testing the check_squares for their type),
+and associate a discovery board containing the squares where they auto-discover.
+To prepare that, take the piece away when generating its retro-moves from King, and clear the retro-moves it has
+when it is still there away from that.
+
+Add some bitboards to the stack to incrementally keep track of which pieces are riders.
+This can be used for more efficient attackers_to determination.
+Whenever a rider is in the threat area formed by King-centered Q moves it is a checking or sniper candidate.
+We must then loop over such pieces to determine if they actually check based on their pseudoAttacks and the occupancy.
+So it is important to have as few as possible, and use cheap tests to weed out candidates in the initial steps where there are still many.
+1) must be rider in the riderThreatZone.
+2) King must be in their pseudo-attacks.
+3) Retrieve the set of RiderTypes that could be responsible for these attacks for the given King-piece vector.
+4) AND with AttackRiderTypes of the piece.
